@@ -1,23 +1,30 @@
 package dev.jetoptimizer;
 
+import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RecipesUpdatedEvent;
 
 import java.util.ArrayDeque;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Collects only timings and counts around source-confirmed JEI lifecycle boundaries. */
 public final class JETOptimizerProfiler {
     private static final String[] RECIPE_INGREDIENT_ROLE_NAMES = {"INPUT", "OUTPUT", "CATALYST", "RENDER_ONLY"};
     private static final ThreadLocal<Session> ACTIVE_SESSION = new ThreadLocal<>();
+
+    private static final AtomicInteger CONNECTION_GENERATION = new AtomicInteger();
+    private static volatile GenerationSnapshot previousGenerationSnapshot;
 
     private static volatile long recipePacketStartedAt;
     private static volatile PendingRecipeSync pendingRecipeSync;
@@ -26,6 +33,7 @@ public final class JETOptimizerProfiler {
     }
 
     public static void onLoggingIn() {
+        CONNECTION_GENERATION.incrementAndGet();
         recipePacketStartedAt = 0L;
         pendingRecipeSync = null;
     }
@@ -68,6 +76,10 @@ public final class JETOptimizerProfiler {
         pendingRecipeSync = null;
         long now = System.nanoTime();
         Session session = new Session(now, sync);
+        session.generation = Math.max(1, CONNECTION_GENERATION.get());
+        session.startedAtEpochMillis = System.currentTimeMillis();
+        session.serverAddress = currentServerAddress();
+        session.previousSnapshot = previousGenerationSnapshot;
         session.observedHooks.add("JeiStarter.start");
         if (sync != null) {
             session.observedHooks.add("RecipesUpdatedEvent");
@@ -88,9 +100,23 @@ public final class JETOptimizerProfiler {
         ACTIVE_SESSION.remove();
         if (JETOptimizerConfig.PROFILING.get()) {
             logProfile(session, totalNanos);
+            previousGenerationSnapshot = GenerationSnapshot.from(session);
         }
         if (JETOptimizerConfig.PLUGIN_PROFILING.get()) {
             logPluginTimings(session);
+        }
+    }
+
+    private static String currentServerAddress() {
+        try {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft == null) {
+                return "unknown";
+            }
+            var serverData = minecraft.getCurrentServer();
+            return serverData == null ? "unknown" : serverData.ip;
+        } catch (RuntimeException | LinkageError e) {
+            return "unknown";
         }
     }
 
@@ -327,6 +353,7 @@ public final class JETOptimizerProfiler {
 
     private static void logProfile(Session session, long totalNanos) {
         StringBuilder lines = new StringBuilder("[JETOptimizer] JEI initialization profile\n");
+        appendConnectionIdentity(lines, session);
 
         if (session.recipeSync != null) {
             PendingRecipeSync sync = session.recipeSync;
@@ -361,9 +388,61 @@ public final class JETOptimizerProfiler {
             lines.append("Plugin UIDs observed: ").append(session.pluginUids.size()).append('\n');
         }
         lines.append("Mixin hooks: ").append(session.observedHooks).append('\n');
+        appendStructuralComparison(lines, session);
         appendRecipeRegistrationBreakdown(lines, session);
         appendSearchIndexBreakdown(lines, session);
         JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
+    }
+
+    private static void appendConnectionIdentity(StringBuilder lines, Session session) {
+        boolean reconnect = session.generation > 1;
+        lines.append("Connection generation: ").append(session.generation)
+            .append(reconnect ? " (in-game reconnect)" : " (first join in this process)")
+            .append('\n');
+        GenerationSnapshot previous = session.previousSnapshot;
+        if (previous == null) {
+            lines.append("Server address: ").append(session.serverAddress).append('\n');
+            return;
+        }
+        lines.append("Server address: ").append(session.serverAddress)
+            .append(previous.serverAddress.equals(session.serverAddress) ? " (unchanged)" : " (CHANGED)")
+            .append('\n');
+        long gapSeconds = Math.max(0L, session.startedAtEpochMillis - previous.startedAtEpochMillis) / 1000L;
+        lines.append("Previous connection in this process: generation ").append(previous.generation)
+            .append(", ").append(gapSeconds).append(" s earlier\n");
+    }
+
+    private static void appendStructuralComparison(StringBuilder lines, Session session) {
+        GenerationSnapshot previous = session.previousSnapshot;
+        if (previous == null) {
+            lines.append("Structural comparison vs previous connection: unavailable (first connection profiled in this process)\n");
+            return;
+        }
+
+        Map<String, Long> current = session.structuralValues();
+        int compared = 0;
+        int changed = 0;
+        StringBuilder detail = new StringBuilder();
+        for (Map.Entry<String, Long> entry : previous.values.entrySet()) {
+            Long now = current.get(entry.getKey());
+            if (now == null || entry.getValue() == null) {
+                continue;
+            }
+            compared++;
+            if (now.equals(entry.getValue())) {
+                detail.append("    unchanged ").append(entry.getKey()).append(": ").append(now).append('\n');
+            } else {
+                changed++;
+                detail.append("    CHANGED   ").append(entry.getKey()).append(": ")
+                    .append(entry.getValue()).append(" -> ").append(now).append('\n');
+            }
+        }
+
+        lines.append("Structural comparison vs generation ").append(previous.generation)
+            .append(": ").append(changed).append(" of ").append(compared).append(" comparable fields differ\n");
+        if (changed > 0) {
+            lines.append(detail);
+        }
     }
 
     private static void appendIngredientCountAnalysis(StringBuilder lines, Session session) {
@@ -505,6 +584,10 @@ public final class JETOptimizerProfiler {
     private static final class Session {
         private final long startedAt;
         private final PendingRecipeSync recipeSync;
+        private int generation = 1;
+        private long startedAtEpochMillis;
+        private String serverAddress = "unknown";
+        private GenerationSnapshot previousSnapshot;
         private final Map<String, Long> stageNanos = new HashMap<>();
         private final Map<String, Long> stageStartedAt = new HashMap<>();
         private final Map<String, Long> pluginNanos = new HashMap<>();
@@ -545,6 +628,65 @@ public final class JETOptimizerProfiler {
         private String currentPluginPhase() {
             PluginPhaseFrame frame = pluginPhaseStack.peek();
             return frame == null ? null : frame.title;
+        }
+
+        /**
+         * Connection-independent structural values. These are the only quantities a reuse
+         * decision may rely on: no timings, no runtime object references, no ingredient payloads.
+         */
+        private Map<String, Long> structuralValues() {
+            Map<String, Long> values = new LinkedHashMap<>();
+            values.put("client recipes (RecipeManager size)", recipeSync == null ? -1L : recipeSync.recipeCount);
+            values.put("recipe categories", (long) recipeCategoryCount);
+            values.put("addRecipes batches", (long) recipeAddBatches);
+            values.put("addRecipes recipes", (long) recipeAddRecipeCount);
+            values.put("setRecipe calls", (long) recipeLayoutCalls);
+            for (int role = 0; role < RECIPE_INGREDIENT_ROLE_NAMES.length; role++) {
+                values.put("RecipeMap.addRecipe " + RECIPE_INGREDIENT_ROLE_NAMES[role] + " calls", (long) recipeMapInsertCalls[role]);
+            }
+            values.put("ingredient manager raw at GUI list build", (long) managerRawAtGuiBuild);
+            values.put("IngredientFilter base-list entries", (long) filterEntriesAtGuiBuild);
+            values.put("ingredient manager raw final", (long) finalManagerRaw);
+            values.put("runtime ingredient add requests", (long) runtimeIngredientAddRequests);
+            values.put("runtime ingredient remove requests", (long) runtimeIngredientRemoveRequests);
+            for (Map.Entry<String, SearchPrefixMetrics> entry : searchPrefixMetrics.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .toList()) {
+                values.put("search getter calls " + entry.getKey(), (long) entry.getValue().getterCalls);
+                values.put("search candidate strings " + entry.getKey(), entry.getValue().returnedStringCandidates);
+            }
+            values.put("baked index build calls", bakedBuildCallsTotal());
+            values.put("baked index key entries", bakedKeyEntriesTotal());
+            values.put("observed plugin UIDs", (long) pluginUids.size());
+            values.put("observed plugin UID set hash", pluginUids.isEmpty() ? -1L : pluginUids.hashCode());
+            return values;
+        }
+
+        private long bakedBuildCallsTotal() {
+            long total = 0L;
+            for (SearchPrefixMetrics metrics : searchPrefixMetrics.values()) {
+                total += metrics.bakedBuildCalls;
+            }
+            return total;
+        }
+
+        private long bakedKeyEntriesTotal() {
+            long total = 0L;
+            for (SearchPrefixMetrics metrics : searchPrefixMetrics.values()) {
+                total += metrics.bakedKeyEntries;
+            }
+            return total;
+        }
+    }
+
+    private record GenerationSnapshot(int generation, long startedAtEpochMillis, String serverAddress, Map<String, Long> values) {
+        private static GenerationSnapshot from(Session session) {
+            return new GenerationSnapshot(
+                session.generation,
+                session.startedAtEpochMillis,
+                session.serverAddress,
+                Collections.unmodifiableMap(new LinkedHashMap<>(session.structuralValues()))
+            );
         }
     }
 

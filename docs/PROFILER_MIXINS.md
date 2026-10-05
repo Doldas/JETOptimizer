@@ -23,3 +23,19 @@ The supported source baseline is JEI 19.57.0.449. All JEI targets below were che
 | `IngredientSupplierHelperMixin` | JEI `mezz.jei.library.util.IngredientSupplierHelper.getIngredientSupplier` | Times category `setRecipe`/slot supplier building, only in the `Registering recipes` callback phase. | Missing hook leaves recipe extraction intact; time remains in `addRecipes` residual. |
 
 When inactive, the callback redirect only checks whether a profiler session exists and immediately delegates. Active timing uses monotonic clocks and in-memory aggregates; the extra per-recipe-role and per-layout samples are limited to recipe registration, while search source metrics sample per-prefix getter calls rather than each string. Plugin UID totals overlap callback-phase and containing JEI stage durations. Recipe add/map/layout stages are nested inside `Registering recipes`; prefix-string and baked-index stages are nested inside `createElementSearch`. Use the parent/child breakdown in `docs/JEI_PERFORMANCE_ANALYSIS.md` and never add overlapping totals.
+
+## Connection generation and structural comparison
+
+These need no new mixins. `JETOptimizer` already listens to `ClientPlayerNetworkEvent.LoggingIn` and `ClientPlayerNetworkEvent.LoggingOut`, so the profiler counts connections itself: `onLoggingIn` increments an `AtomicInteger` and the value is copied into the session when `JeiStarter.start` is observed. The count survives `LoggingOut` on purpose, which is what makes a second join inside the same game process distinguishable from a cold launch; it dies with the process, so it never leaks between launches.
+
+Each profile therefore starts with:
+
+```text
+Connection generation: 2 (in-game reconnect)
+Server address: 10.0.0.5:25565 (unchanged)
+Previous connection in this process: generation 1, 47 s earlier
+```
+
+When a previous generation was profiled in the same process, the profile also prints `Structural comparison vs generation N: X of Y comparable fields differ`, followed by one `unchanged`/`CHANGED` line per field. The compared set is deliberately limited to connection-independent quantities: client recipe count, recipe-category count, `addRecipes` batches and recipes, `setRecipe` calls, per-role `RecipeMap.addRecipe` call counts, ingredient-manager counts before and after `onRuntimeAvailable`, runtime add/remove request counts, per-prefix getter calls and candidate-string counts, baked index build calls and key entries, and the observed plugin UID count plus an order-independent set hash. No timings, no `IJeiRuntime`, no `ClientLevel`, no `ItemStack` and no plugin objects are retained, so the snapshot cannot keep a connection alive or change what JEI does.
+
+The comparison is diagnostic and fails open. Fields that are absent on either side are skipped rather than reported as differences, an unreachable server address prints `unknown` instead of throwing, and the snapshot is only stored while `profiling` is enabled, so a run with profiling off simply prints `unavailable (first connection profiled in this process)`.
