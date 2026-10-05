@@ -388,10 +388,50 @@ regression is almost entirely this one phase, not JEI registration. It needs no 
 it as a top-level plugin phase, subtracts it from the unattributed remainder, and breaks it down per
 plugin, so the next run attributes it rather than merely measuring it.
 
+## Second three-generation run: the unattributed region is closed
+
+The same three-generation procedure was repeated on a fresh cold launch after the phase reporting was
+added, in the same mod set: cold remote join, in-game reconnect to the same remote server, then a
+local single-player world.
+
+| Join | cold remote join | in-game reconnect | local world |
+|---|---:|---:|---:|
+| Total JEI start | 29.734 s | 25.095 s | 39.905 s |
+| Disjoint stage sum | 26.833 s | 22.116 s | 29.509 s |
+| `Sending Runtime` | 2.939 s | 3.002 s | 10.425 s |
+| `Configuring JEI` | 0.003 s | 0.002 s | 0.003 s |
+| Remainder before phase reporting | 2.720 s | 2.850 s | 10.396 s |
+| Remainder after phase reporting | 0.000 s | 0.000 s | 0.000 s |
+| Structural fields differing from previous | n/a | 20 of 40 | 21 of 40 |
+
+**The profile now accounts for essentially all of JEI's startup.** Disjoint stages plus `Sending Runtime` plus `Configuring JEI` leave a raw residual of -0.041 s, -0.025 s and -0.032 s, so the measured regions slightly overlap JEI's own `LoggedTimer` total and the printed remainder clamps to zero. Before, 2.7-10.4 s had no name at all. The same 20-of-40 and 21-of-40 structural differences reproduced, so the payload-instability result from the first run replicates.
+
+**`Sending Runtime` is now attributed, and it is two mods, not JEI.** `Plugin callback time not attributed` is 0.002-0.007 s, so essentially the whole phase is plugin callbacks:
+
+| `onRuntimeAvailable` callback | cold remote join | in-game reconnect | local world |
+|---|---:|---:|---:|
+| `kubejs:jei` | 2.755 s | 2.887 s | 2.907 s |
+| `createthrusters:jei` | 0.044 s | 0.035 s | **7.386 s** |
+| `ae2:core` | 0.083 s | 0.040 s | 0.061 s |
+| Phase total | 2.939 s | 3.002 s | 10.425 s |
+
+KubeJS costs about 2.9 s on every join regardless of target. Create Thrusters costs 0.04 s on the remote joins and **7.386 s on the local world**, which is 71% of that phase and 18.5% of the entire 39.905 s JEI startup. This is the whole of the previously "unexplained" local-world regression, and it is Create Thrusters' own `onRuntimeAvailable`, not JEI and not JETOptimizer. The 7.386 s figure is cross-validated: the independent per-plugin totals that the profiler has always emitted report `createthrusters:jei 7.386` for the local world in both this run and the previous one, matching the new per-phase attribution exactly.
+
+**`Ingredient registration` is JEI's own vanilla plugin, not mod code.** `Registering ingredients` is 3.845 / 2.399 / 4.435 s and `jei:minecraft` accounts for 3.836 / 2.396 / 4.432 s of it, i.e. 99.0-99.9%. All other mod callbacks in that phase together are below 0.01 s. `Registering extra ingredients` is 0.006 s and `Registering search ingredient aliases` is 0.025 s. This answers the swing recorded earlier in this document, 4.488 / 3.377 / 2.638 / 3.737 s across runs with no per-source detail: it is JEI's own vanilla ingredient registration varying, and no mod callback is responsible. The measurement gap is closed rather than merely moved.
+
+**`Registering Runtime` turned out to be JEI's own GUI plugin, not a separate region.** The first version of this reporting decided whether a phase was top-level at phase start only, so it classified `Registering Runtime` (11.670 / 9.870 / 12.189 s) as an independent region. It is not: `NeoForgeGuiPlugin.registerRuntime` calls `JeiGuiStarter.start`, so the `JEI GUI runtime construction` stage (11.663 / 9.866 / 12.184 s) is nested inside the phase, and the two agree to within 0.007 s. The per-plugin totals confirm it directly: `jei:neoforge_gui` is 11.666 / 9.866 / 12.185 s against the stage's 11.663 / 9.866 / 12.184 s. Subtracting both from the total double counted roughly a third of startup. A phase frame now records whether a stage was opened while it was running, and only a phase that neither started inside a stage nor opened one is subtracted.
+
+**Consequence: the dominant region is not mod code.** The 11.7 s `JEI GUI runtime construction` is `jei:neoforge_gui` calling JEI's own `JeiGuiStarter.start`, and inside it 8.0 s is `Ingredient filter construction`, 7.8 s is search-index construction, and 6.8 s is `tooltips` string extraction across 68,186 ingredients that are three-quarters vanilla. There is no mod callback to remove there. The only mod-attributable costs of consequence are KubeJS at a fixed ~2.9 s per join and Create Thrusters at 7.386 s on the local world, both inside mod code that JETOptimizer cannot change.
+
+**Profiler overhead is unchanged.** Totals moved 29.371 → 29.734 s, 26.196 → 25.095 s and 37.492 → 39.905 s against the previous run. The local-world spread alone is 2.4 s, which swamps the per-callback movement, and the hot paths in this iteration do strictly less work than before (no config read per sample, no stack peek and string compare per recipe insert, one type-UID lookup per tooltip instead of two). No overhead regression is visible, and the effect is below the noise floor, so per the existing guidance no further launches should be spent bounding it.
+
 **Conclusion for this iteration.** With a real reconnect measured, none of the three candidate
 regions yields a safe optimisation: the tooltip phase is connection-bound and diffuse, the supplier
 and recipe-map phases have no redundancy in any generation, and the only provable waste requires
 reordering JEI's startup. The measurement is the deliverable; a code change here would be a guess.
+That conclusion is now stronger rather than weaker: the profile accounts for ~100% of startup, the two
+regions that looked like JEI's own unattributed overhead are JEI's own vanilla plugin and JEI's own
+GUI plugin, and the only remaining mod-sized costs are inside KubeJS and Create Thrusters.
 
 ## Profiler smoke test and next measurement
 
@@ -413,7 +453,7 @@ The expanded profiler has now been run eight times on ATM10A. JEI accounts for 7
 
 1. **Profiler overhead is a solved-enough question.** Four instrumented and four uninstrumented launches differ by 0.135 s against a 1.1-1.7 s spread. Do not spend more launches on this; if a bound is ever needed, alternate both arms over six launches each and discard the first after any config change.
 2. **Reconnect and invalidation: resolved for the same-server case.** One process now covers a cold join, an in-game reconnect to the same remote server, and a join to a local world. See "Three generations in one process" above. The generation lines behave as intended, and the `Structural comparison vs previous connection` block is what makes the result trustworthy: it showed 20 of 40 fields differing on a same-server reconnect, which is the evidence that rules out a reuse layer keyed on mod-side state. Two caveats are recorded in code. First, the profiler originally labelled any generation above 1 as "in-game reconnect", which was wrong for a local world that has no address; `currentServerAddress()` now names an integrated server explicitly and the join kind is derived from the generation *and* the observed target. Second, JEI runs a full startup for the local world too, so a local join is not a valid data point for remote-server reconnects.
-3. **Unexplained regions: instrumented, awaiting a run.** `Other (unattributed)` is 2.656-2.850 s on remote joins but 10.396 s for a local world, and it is dominated by JEI's `Sending Runtime` phase (2.750 / 2.875 / 10.430 s), which was already hooked but never printed. `Ingredient registration` also swung 4.488 s → 3.377 s → 2.638 s → 3.737 s across runs with no per-source detail. Both gaps are now closed in reporting: the profile prints top-level plugin phases separately and subtracts them from the remainder, adds a `Sending Runtime` per-plugin breakdown, and adds the three nested ingredient-registration phases with per-plugin attribution. **Next action:** run one process through a cold join, an in-game reconnect and a local join again and read the new rows. This is still a measurement gap, not a proven cost.
+3. **Unexplained regions: closed.** The second three-generation run attributes everything. `Other (unattributed)` is 0.000 s with a raw residual of -0.025 to -0.041 s, so the profiled regions account for about 100.1% of JEI's `LoggedTimer` total. `Sending Runtime` is 2.939 / 3.002 / 10.425 s of which `kubejs:jei` is a fixed ~2.9 s and `createthrusters:jei` is 7.386 s on the local world only. `Ingredient registration` is 99.0-99.9% `jei:minecraft`. **Next action:** none. Any further reduction has to come from KubeJS's or Create Thrusters's own `onRuntimeAvailable`, which is mod code, or from reordering JEI's startup, which is a behaviour change.
 4. **Do not reuse run A.** Its 27.447 s is unexplained and is not a valid baseline; use the mean of a fresh arm instead.
 5. **Do not treat the dominant region as reuse-able work.** `docs/JEI_SOURCE_ANALYSIS.md` shows the 7.265 s tooltip stage is bound to `ClientLevel` and the local `Player` inside `SafeIngredientUtil.getPlainTooltipForSearch`, and that the supplier and recipe-map regions have no duplicate computation to remove. Any proposal to cache those needs new evidence, not the existing timings.
 

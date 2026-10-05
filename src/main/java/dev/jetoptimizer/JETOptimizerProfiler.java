@@ -201,6 +201,11 @@ public final class JETOptimizerProfiler {
         }
         session.stageStartedAt.put(stageName, System.nanoTime());
         session.observedHooks.add(stageName);
+        // A phase that opens a stage inside itself is not an independent region, so it must not be
+        // counted again on top of that stage.
+        for (PluginPhaseFrame frame : session.pluginPhaseStack) {
+            frame.containsStage = true;
+        }
         switch (stageName) {
             case STAGE_SEARCH_INDEX -> session.resetSearchTracking();
             case "Ingredient sorting" -> session.observedHooks.add("IngredientSorter.sortIngredients");
@@ -261,7 +266,7 @@ public final class JETOptimizerProfiler {
             return;
         }
         session.pluginPhaseNanos.merge(title, elapsed, Long::sum);
-        if (frame.topLevel()) {
+        if (frame.isTopLevel()) {
             session.topLevelPluginPhaseNanos.merge(title, elapsed, Long::sum);
         }
     }
@@ -916,7 +921,34 @@ public final class JETOptimizerProfiler {
     private record PluginCallbackKey(String phase, String pluginUid) {
     }
 
-    private record PluginPhaseFrame(String title, long startedAt, boolean topLevel) {
+    /**
+     * Mutable because a phase can start outside every measured stage and still open one: JEI's
+     * {@code Registering Runtime} phase calls {@code JeiGuiStarter.start} through its own NeoForge GUI
+     * plugin, so the GUI-runtime stage is nested inside the phase rather than after it.
+     */
+    private static final class PluginPhaseFrame {
+        private final String title;
+        private final long startedAt;
+        private final boolean startedOutsideStage;
+        private boolean containsStage;
+
+        private PluginPhaseFrame(String title, long startedAt, boolean startedOutsideStage) {
+            this.title = title;
+            this.startedAt = startedAt;
+            this.startedOutsideStage = startedOutsideStage;
+        }
+
+        private String title() {
+            return title;
+        }
+
+        private long startedAt() {
+            return startedAt;
+        }
+
+        private boolean isTopLevel() {
+            return startedOutsideStage && !containsStage;
+        }
     }
 
     private record BakedIndexFrame(String prefixId, long startedAt, int keyCount) {

@@ -29,29 +29,34 @@ When inactive, the callback redirect only checks whether a profiler session exis
 
 `Sending Runtime`, `Configuring JEI`, `Registering Runtime` and the three ingredient-registration phases were never unmeasured. `PluginCaller.callOnPlugins` routes every JEI lifecycle callback through the same method, so `PluginCallerMixin` already records each phase name in `pluginPhaseNanos` together with per-plugin totals in `pluginNanosByPhase`. The gap was in reporting: the profile only printed a fixed list of five recipe-manager phases, so everything else was only visible inside the `Other (unattributed)` remainder.
 
-Each phase frame now also records whether a measured JEI stage was open when the phase began. A phase that ran with no stage open is a *top-level* phase, is printed under `Top-level plugin phases (outside every measured stage)`, and is subtracted from `Other (unattributed)`. That matters because `Sending Runtime` runs after the last `PluginLoader` stage closes: its 2.75 s to 10.43 s measured runtime was previously indistinguishable from unattributed remainder, and now it is a named line. Phases nested inside a stage stay attached to their stage and are not subtracted, so the remainder no longer double-counts them.
+Each phase frame also records whether a measured JEI stage was open when the phase began, and whether a stage was opened while the phase was running. A phase that satisfies neither condition is a *top-level* phase: it is printed under `Top-level plugin phases (outside every measured stage)` and subtracted from `Other (unattributed)`. A phase that opens a stage inside itself is not subtracted, because that stage is already counted. This distinction is not theoretical: JEI's `Registering Runtime` phase calls `JeiGuiStarter.start` from its own `NeoForgeGuiPlugin.registerRuntime`, so the 11.7 s `JEI GUI runtime construction` stage is nested inside that phase rather than following it, and the phase and its stage agree to within 0.007 s across three generations. Subtracting both would double count roughly a third of the startup.
 
-Two new detail sections close the remaining per-source gaps, and both read the phase names from JEI source (`PluginLoader.registerIngredients`) rather than from guesses. Times below are shown as placeholders because the recorded runs predate these rows:
+Two new detail sections close the remaining per-source gaps, and both take their phase names from JEI source (`PluginLoader.registerIngredients`, `JeiStarter.start`) rather than from guesses. Real output from the three-generation run:
 
 ```text
 Ingredient registration detail (nested plugin phases):
-  Registering ingredients:                 <time>
+  Registering ingredients:                3.845 s
     Slowest callbacks (top 5):
-      <plugin uid>
-  Registering extra ingredients:           <time>
-  Registering search ingredient aliases:   <time>
-  Ingredient registration outside plugin phases: <time>
+      jei:minecraft:                      3.836 s
+      bigreactors:jeiplugin:              0.002 s
+  Registering extra ingredients:          0.006 s
+  Registering search ingredient aliases:    0.025 s
+  Ingredient registration outside plugin phases:    0.006 s
 ```
 
 ```text
 Sending Runtime detail (outside every measured stage):
-  onRuntimeAvailable across plugins:      <time>
-  Plugin callback time not attributed:    <time>
+  onRuntimeAvailable across plugins:      2.939 s
+  Plugin callback time not attributed:    0.002 s
   Slowest onRuntimeAvailable callbacks (top 10):
-    <plugin uid>
+    kubejs:jei:                           2.755 s
+    ae2:core:                             0.083 s
+    createthrusters:jei:                  0.044 s
 ```
 
 `Ingredient registration outside plugin phases` and `Plugin callback time not attributed` are the residuals of their parents, so the phase lines always sum back to the stage or phase total that contains them.
+
+`Sending Runtime` runs after every `PluginLoader` stage closes, so before this reporting it was indistinguishable from the unattributed remainder: 2.939 s, 3.002 s and 10.425 s against residuals of 2.720 s, 2.850 s and 10.396 s. With the phases printed and the correctly nested ones held inside their stage, the remainder closes to a raw -0.025 s to -0.041 s, so the profiled regions account for about 100.1% of JEI's own `LoggedTimer` total instead of leaving 2.7-10.4 s unaccounted.
 
 ## Profiling overhead
 
