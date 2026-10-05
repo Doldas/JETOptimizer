@@ -129,6 +129,9 @@ public final class JETOptimizerProfiler {
                 session.searchPrefixMetrics.clear();
                 session.searchPrefixStarts.clear();
                 session.bakedIndexStarts.clear();
+                session.tooltipNanosByType.clear();
+                session.tooltipStringStartedAt = null;
+                session.currentTooltipTypeUid = null;
                 session.currentSearchPrefix = null;
             } else if (stageName.equals("Ingredient sorting")) {
                 session.observedHooks.add("IngredientSorter.sortIngredients");
@@ -351,6 +354,27 @@ public final class JETOptimizerProfiler {
             : null;
     }
 
+    public static void beginTooltipStringSource(String ingredientTypeUid) {
+        Session session = activeSearchSession();
+        if (session != null) {
+            session.tooltipStringStartedAt = System.nanoTime();
+            session.currentTooltipTypeUid = ingredientTypeUid;
+        }
+    }
+
+    public static void finishTooltipStringSource(String ingredientTypeUid) {
+        Session session = activeSearchSession();
+        Long startedAt = session == null ? null : session.tooltipStringStartedAt;
+        if (session == null || startedAt == null) {
+            return;
+        }
+        session.tooltipStringStartedAt = null;
+        session.currentTooltipTypeUid = null;
+        long[] metrics = session.tooltipNanosByType.computeIfAbsent(ingredientTypeUid, ignored -> new long[2]);
+        metrics[0] += System.nanoTime() - startedAt;
+        metrics[1]++;
+    }
+
     private static void logProfile(Session session, long totalNanos) {
         StringBuilder lines = new StringBuilder("[JETOptimizer] JEI initialization profile\n");
         appendConnectionIdentity(lines, session);
@@ -562,6 +586,22 @@ public final class JETOptimizerProfiler {
             .sum();
         lines.append("  Baked index build calls/key entries: ").append(bakeCalls).append('/').append(keyEntries).append('\n');
         appendTiming(lines, "  Other search-index work", Math.max(0L, searchStage - sourceNanos - bakeNanos));
+        appendTooltipStringsByType(lines, session);
+    }
+
+    private static void appendTooltipStringsByType(StringBuilder lines, Session session) {
+        if (session.tooltipNanosByType.isEmpty()) {
+            return;
+        }
+        lines.append("  Tooltip search strings by ingredient type (top 6, time/calls):\n");
+        session.tooltipNanosByType.entrySet().stream()
+            .sorted(Comparator.<Map.Entry<String, long[]>>comparingLong(entry -> entry.getValue()[0]).reversed())
+            .limit(6)
+            .forEach(entry -> {
+                String formatted = String.format(Locale.ROOT, "%.3f s", entry.getValue()[0] / 1_000_000_000.0);
+                lines.append("    ").append(entry.getKey()).append(": ").append(formatted)
+                    .append('/').append(entry.getValue()[1]).append('\n');
+            });
     }
 
     private static void logPluginTimings(Session session) {
@@ -600,6 +640,9 @@ public final class JETOptimizerProfiler {
         private final Map<String, Long> searchPrefixStarts = new HashMap<>();
         private final Deque<BakedIndexFrame> bakedIndexStarts = new ArrayDeque<>();
         private final Deque<Long> recipeLayoutStarts = new ArrayDeque<>();
+        private final Map<String, long[]> tooltipNanosByType = new HashMap<>();
+        private Long tooltipStringStartedAt;
+        private String currentTooltipTypeUid;
         private String currentSearchPrefix;
         private long recipeAddNanos;
         private int recipeAddBatches;
@@ -657,6 +700,11 @@ public final class JETOptimizerProfiler {
             }
             values.put("baked index build calls", bakedBuildCallsTotal());
             values.put("baked index key entries", bakedKeyEntriesTotal());
+            for (Map.Entry<String, long[]> entry : tooltipNanosByType.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .toList()) {
+                values.put("tooltip string calls " + entry.getKey(), entry.getValue()[1]);
+            }
             values.put("observed plugin UIDs", (long) pluginUids.size());
             values.put("observed plugin UID set hash", pluginUids.isEmpty() ? -1L : pluginUids.hashCode());
             return values;

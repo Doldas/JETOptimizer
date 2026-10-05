@@ -9,6 +9,7 @@
     "IngredientManagerMixin",
     "IngredientFilterMixin",
     "IngredientListElementFactoryMixin",
+    "ListElementInfoMixin",
     "IngredientSorterMixin",
     "IngredientSupplierHelperMixin",
     "JeiGuiStarterMixin",
