@@ -316,7 +316,7 @@ separately from the eight cold-launch rows and is not averaged with them.
 | `setRecipe` calls | 4.255 s / 211,643 | 3.307 s / 211,907 | 3.688 s / 213,122 |
 | JEI GUI runtime construction | 11.057 s | 10.149 s | 11.387 s |
 | Ingredient search index construction | 7.662 s | 6.837 s | 7.685 s |
-| `Sending Runtime` (from JEI's own log) | 2.750 s | 2.875 s | 10.430 s |
+| `Sending Runtime` (values read from JEI's own log) | 2.750 s | 2.875 s | 10.430 s |
 | Other (unattributed) | 2.720 s | 2.850 s | 10.396 s |
 | Ingredients at GUI list build | 68,186 | 70,223 | 70,221 |
 | Ingredients after runtime callbacks | 51,744 | 51,746 | 51,744 |
@@ -380,11 +380,13 @@ JEI, and the ordering is not incidental. Avoiding it means building the index af
 known, which changes when mod tooltip code runs relative to the player joining; that is a behaviour
 change, not a safe optimisation.
 
-**`Sending Runtime` is the largest unattributed region.** It is 2.750-2.875 s on the remote joins and
-10.430 s for the local world, and because it has no stage hook it lands in `Other (unattributed)`
-(2.720 / 2.850 / 10.396 s). Generation 3's apparent 37 s regression is almost entirely this one phase,
-not JEI registration. It is worth its own hook: 9% of a remote join and 28% of a local join, currently
-invisible inside a residual bucket.
+**`Sending Runtime` is the largest region that had no named line in the profile.** It is 2.750-2.875 s
+on the remote joins and 10.430 s for the local world, and it was landing in `Other (unattributed)`
+(2.720 / 2.850 / 10.396 s) purely because the report never printed it. Generation 3's apparent 37 s
+regression is almost entirely this one phase, not JEI registration. It needs no new hook, because
+`PluginCaller.callOnPlugins` already routes it through `PluginCallerMixin`; the profiler now prints
+it as a top-level plugin phase, subtracts it from the unattributed remainder, and breaks it down per
+plugin, so the next run attributes it rather than merely measuring it.
 
 **Conclusion for this iteration.** With a real reconnect measured, none of the three candidate
 regions yields a safe optimisation: the tooltip phase is connection-bound and diffuse, the supplier
@@ -411,7 +413,7 @@ The expanded profiler has now been run eight times on ATM10A. JEI accounts for 7
 
 1. **Profiler overhead is a solved-enough question.** Four instrumented and four uninstrumented launches differ by 0.135 s against a 1.1-1.7 s spread. Do not spend more launches on this; if a bound is ever needed, alternate both arms over six launches each and discard the first after any config change.
 2. **Reconnect and invalidation: resolved for the same-server case.** One process now covers a cold join, an in-game reconnect to the same remote server, and a join to a local world. See "Three generations in one process" above. The generation lines behave as intended, and the `Structural comparison vs previous connection` block is what makes the result trustworthy: it showed 20 of 40 fields differing on a same-server reconnect, which is the evidence that rules out a reuse layer keyed on mod-side state. Two caveats are recorded in code. First, the profiler originally labelled any generation above 1 as "in-game reconnect", which was wrong for a local world that has no address; `currentServerAddress()` now names an integrated server explicitly and the join kind is derived from the generation *and* the observed target. Second, JEI runs a full startup for the local world too, so a local join is not a valid data point for remote-server reconnects.
-3. **Unexplained regions.** `Other (unattributed)` is 2.656-2.850 s on remote joins but 10.396 s for a local world, and it is dominated by JEI's `Sending Runtime` phase (2.750 / 2.875 / 10.430 s), which has no stage hook. `Ingredient registration` also swung 4.488 s → 3.377 s → 2.638 s → 3.737 s across runs with no per-source detail. **Next action:** add a hook around `Sending Runtime` and per-source attribution for ingredient registration. Both are measurement gaps, not proven costs.
+3. **Unexplained regions: instrumented, awaiting a run.** `Other (unattributed)` is 2.656-2.850 s on remote joins but 10.396 s for a local world, and it is dominated by JEI's `Sending Runtime` phase (2.750 / 2.875 / 10.430 s), which was already hooked but never printed. `Ingredient registration` also swung 4.488 s → 3.377 s → 2.638 s → 3.737 s across runs with no per-source detail. Both gaps are now closed in reporting: the profile prints top-level plugin phases separately and subtracts them from the remainder, adds a `Sending Runtime` per-plugin breakdown, and adds the three nested ingredient-registration phases with per-plugin attribution. **Next action:** run one process through a cold join, an in-game reconnect and a local join again and read the new rows. This is still a measurement gap, not a proven cost.
 4. **Do not reuse run A.** Its 27.447 s is unexplained and is not a valid baseline; use the mean of a fresh arm instead.
 5. **Do not treat the dominant region as reuse-able work.** `docs/JEI_SOURCE_ANALYSIS.md` shows the 7.265 s tooltip stage is bound to `ClientLevel` and the local `Player` inside `SafeIngredientUtil.getPlainTooltipForSearch`, and that the supplier and recipe-map regions have no duplicate computation to remove. Any proposal to cache those needs new evidence, not the existing timings.
 

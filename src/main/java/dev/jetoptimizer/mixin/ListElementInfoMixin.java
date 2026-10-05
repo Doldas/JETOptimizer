@@ -5,6 +5,7 @@ import mezz.jei.api.ingredients.ITypedIngredient;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -13,6 +14,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * Attributes JEI's per-ingredient tooltip search-string extraction to the ingredient type it came from.
  * The tooltip stage is the single largest identified startup region, and this shows whether it is
  * diffuse or dominated by a few ingredient types, which is what decides if it can be attacked at all.
+ *
+ * <p>The uid is resolved once and reused by the return hook: {@code getTooltipStrings} runs once per
+ * ingredient, so walking the typed ingredient twice would double the cost of the only bookkeeping
+ * this mixin does.
  */
 @Pseudo
 @Mixin(targets = "mezz.jei.gui.ingredients.ListElementInfo", remap = false)
@@ -21,20 +26,24 @@ abstract class ListElementInfoMixin<V> {
     @Shadow
     public abstract ITypedIngredient<V> getTypedIngredient();
 
+    @Unique
+    private String jetoptimizer$ingredientTypeUid;
+
     @Inject(method = "getTooltipStrings", at = @At("HEAD"), remap = false)
     private void jetoptimizer$beginTooltipStrings(CallbackInfoReturnable<?> callbackInfo) {
-        JETOptimizerProfiler.beginTooltipStringSource(ingredientTypeUid());
+        jetoptimizer$ingredientTypeUid = ingredientTypeUid();
+        JETOptimizerProfiler.beginTooltipStringSource(jetoptimizer$ingredientTypeUid);
     }
 
     @Inject(method = "getTooltipStrings", at = @At("RETURN"), remap = false)
     private void jetoptimizer$finishTooltipStrings(CallbackInfoReturnable<?> callbackInfo) {
-        JETOptimizerProfiler.finishTooltipStringSource(ingredientTypeUid());
+        JETOptimizerProfiler.finishTooltipStringSource();
     }
 
     private String ingredientTypeUid() {
         try {
             ITypedIngredient<V> typedIngredient = getTypedIngredient();
-            if (typedIngredient == null || typedIngredient.getType() == null) {
+            if (typedIngredient == null) {
                 return "unknown";
             }
             return typedIngredient.getType().getUid();
