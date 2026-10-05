@@ -119,6 +119,8 @@ Stopping!
 
 Eight launches against the same saved server, with no pack or server changes. The only config change was toggling `profiling` / `pluginProfiling` for the overhead comparison.
 
+**Every launch in this table was a new Minecraft process that performed exactly one join.** Each run was started from Prism, the server entry was selected manually, and the client stayed in that one world until the run was ended. No client process in this table survived a disconnect and rejoined, so none of these rows is a reconnect measurement: they are cold-process, first-connection numbers.
+
 | Run | `profiling` | `Starting JEI` | menu → in-game | Notes |
 |---|---|---:|---:|---|
 | A | on | 27.447 s | 36.873 s | Earlier lighter hook set; not comparable hook-for-hook; fastest session |
@@ -153,7 +155,9 @@ For that reason, and because each launch overwrites `latest.log` and renumbers t
 cp "$INSTANCE/minecraft/logs/latest.log" ~/jetoptimizer-runs/atm10a-$(date +%Y%m%d-%H%M%S).log
 ```
 
-Identify a run by its timestamps and `Starting JEI` value, never by filename alone. No run so far covered a disconnect/rejoin, so the reconnect profile is still unmeasured.
+Identify a run by its timestamps and `Starting JEI` value, never by filename alone. Because the eight recorded launches were separate processes with a single join each, none of them measures an in-game disconnect/rejoin, and the reconnect profile is still unmeasured in the recorded data. A disconnect/rejoin was exercised interactively while developing the profiler, but no profile block from that sequence was preserved in the table above, so it cannot be used as a benchmark row.
+
+From now on, `JEI initialization profile` carries a `Connection generation:` line and a `Join kind:` line. `Connection generation: 1` with `first join in this process` confirms a cold launch; `Connection generation: 2` or higher with `in-game reconnect` confirms the reuse scenario, and the profile then also prints a `Structural comparison vs previous connection` block. Use those lines, not the log filename, to classify a run.
 
 Run A's 27.447 s remains unexplained and is not a usable baseline. The current instance config is left with `profiling = true` and `pluginProfiling = true`.
 
