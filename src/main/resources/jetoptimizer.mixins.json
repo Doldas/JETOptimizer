@@ -5,13 +5,20 @@
   "package": "dev.jetoptimizer.mixin",
   "client": [
     "ClientPacketListenerMixin",
+    "BakedSubstringIndexBuilderMixin",
+    "IngredientManagerMixin",
     "IngredientFilterMixin",
     "IngredientListElementFactoryMixin",
+    "IngredientSorterMixin",
+    "IngredientSupplierHelperMixin",
     "JeiGuiStarterMixin",
     "JeiStarterMixin",
+    "PrefixInfoMixin",
     "PluginCallerMixin",
     "PluginLoaderMixin",
-    "RecipeManagerInternalMixin"
+    "RecipeManagerInternalMixin",
+    "RecipeMapMixin",
+    "RecipeRegistrationMixin"
   ],
   "injectors": {
     "defaultRequire": 0

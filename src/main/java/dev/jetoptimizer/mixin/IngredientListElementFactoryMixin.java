@@ -1,6 +1,10 @@
 package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
+import mezz.jei.api.helpers.IModIdHelper;
+import mezz.jei.api.ingredients.IIngredientType;
+import mezz.jei.api.runtime.IIngredientManager;
+import mezz.jei.common.config.IIngredientFilterConfig;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
@@ -17,7 +21,40 @@ abstract class IngredientListElementFactoryMixin {
     }
 
     @Inject(method = "createBaseList", at = @At("RETURN"), remap = false)
-    private static void jetoptimizer$finishIngredientList(CallbackInfoReturnable<?> callbackInfo) {
+    private static void jetoptimizer$finishIngredientList(
+        IIngredientManager ingredientManager,
+        IIngredientFilterConfig config,
+        IModIdHelper modIdHelper,
+        CallbackInfoReturnable<?> callbackInfo
+    ) {
         JETOptimizerProfiler.finishStage("Ingredient list construction");
+        int rawCount = countRawIngredients(ingredientManager);
+        int typedCount = countTypedIngredients(ingredientManager);
+        int listCount = ((java.util.List<?>) callbackInfo.getReturnValue()).size();
+        JETOptimizerProfiler.recordIngredientCountsAtGuiBuild(rawCount, typedCount, listCount);
+    }
+
+    private static int countRawIngredients(IIngredientManager ingredientManager) {
+        int count = 0;
+        for (IIngredientType<?> type : ingredientManager.getRegisteredIngredientTypes()) {
+            count += rawIngredientCount(ingredientManager, type);
+        }
+        return count;
+    }
+
+    private static int countTypedIngredients(IIngredientManager ingredientManager) {
+        int count = 0;
+        for (IIngredientType<?> type : ingredientManager.getRegisteredIngredientTypes()) {
+            count += typedIngredientCount(ingredientManager, type);
+        }
+        return count;
+    }
+
+    private static <T> int rawIngredientCount(IIngredientManager manager, IIngredientType<T> type) {
+        return manager.getAllIngredients(type).size();
+    }
+
+    private static <T> int typedIngredientCount(IIngredientManager manager, IIngredientType<T> type) {
+        return manager.getAllTypedIngredients(type).size();
     }
 }

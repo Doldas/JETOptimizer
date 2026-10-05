@@ -15,7 +15,7 @@ JETOptimizer is an experimental client-side performance research mod for Minecra
 
 ## Current status
 
-The repository contains the initial client mod/config skeleton and [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md). Profiling hooks are being added only at source-confirmed lifecycle and timing boundaries. Reconnect caching remains disabled and unimplemented.
+The repository contains the initial client mod/config skeleton, the [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md), and the [ATM10 Aeronautics performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md). Profiling hooks are added only at source-confirmed lifecycle and timing boundaries. Reconnect caching remains disabled and unimplemented.
 
 The report documents which JEI objects are reconstructed, which owners/listeners are stopped on disconnect, existing JEI timers, and what still needs runtime measurement. In JEI 19.57.0.449, `Starting JEI` includes the runtime/plugin callbacks, while recipe synchronization precedes it; JEI's `Building ingredient filter` timer combines sorting, search construction, and visibility work. JETOptimizer profiles the actual `IngredientFilter.createElementSearch` boundary separately from the full filter constructor.
 

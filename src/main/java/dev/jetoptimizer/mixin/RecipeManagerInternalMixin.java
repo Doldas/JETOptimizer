@@ -31,5 +31,38 @@ abstract class RecipeManagerInternalMixin {
         CallbackInfo callbackInfo
     ) {
         JETOptimizerProfiler.recordRecipeCategoryCount(recipeCategories.size());
+        JETOptimizerProfiler.beginStage("Recipe registry construction");
+    }
+
+    @Inject(method = "<init>", at = @At("RETURN"), remap = false)
+    private void jetoptimizer$finishRecipeRegistryConstruction(
+        List<IRecipeCategory<?>> recipeCategories,
+        ImmutableListMultimap<RecipeType<?>, Consumer<IIngredientAcceptor<?>>> recipeCatalysts,
+        IIngredientManager ingredientManager,
+        RecipeCategorySortingConfig recipeCategorySortingConfig,
+        IIngredientVisibility ingredientVisibility,
+        CallbackInfo callbackInfo
+    ) {
+        JETOptimizerProfiler.finishStage("Recipe registry construction");
+    }
+
+    @Inject(method = "addPlugins", at = @At("HEAD"), remap = false)
+    private void jetoptimizer$beginAdvancedPluginWiring(CallbackInfo callbackInfo) {
+        JETOptimizerProfiler.beginStage("Advanced recipe-manager plugin wiring");
+    }
+
+    @Inject(method = "addPlugins", at = @At("RETURN"), remap = false)
+    private void jetoptimizer$finishAdvancedPluginWiring(CallbackInfo callbackInfo) {
+        JETOptimizerProfiler.finishStage("Advanced recipe-manager plugin wiring");
+    }
+
+    @Inject(method = "compact", at = @At("HEAD"), remap = false)
+    private void jetoptimizer$beginRecipeMapCompaction(CallbackInfo callbackInfo) {
+        JETOptimizerProfiler.beginStage("Recipe map compaction");
+    }
+
+    @Inject(method = "compact", at = @At("RETURN"), remap = false)
+    private void jetoptimizer$finishRecipeMapCompaction(CallbackInfo callbackInfo) {
+        JETOptimizerProfiler.finishStage("Recipe map compaction");
     }
 }

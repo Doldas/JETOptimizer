@@ -3,10 +3,12 @@ package dev.jetoptimizer;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RecipesUpdatedEvent;
 
-import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -14,6 +16,7 @@ import java.util.Set;
 
 /** Collects only timings and counts around source-confirmed JEI lifecycle boundaries. */
 public final class JETOptimizerProfiler {
+    private static final String[] RECIPE_INGREDIENT_ROLE_NAMES = {"INPUT", "OUTPUT", "CATALYST", "RENDER_ONLY"};
     private static final ThreadLocal<Session> ACTIVE_SESSION = new ThreadLocal<>();
 
     private static volatile long recipePacketStartedAt;
@@ -96,6 +99,14 @@ public final class JETOptimizerProfiler {
         if (session != null && JETOptimizerConfig.PROFILING.get()) {
             session.stageStartedAt.put(stageName, System.nanoTime());
             session.observedHooks.add(stageName);
+            if (stageName.equals("Ingredient search index construction")) {
+                session.searchPrefixMetrics.clear();
+                session.searchPrefixStarts.clear();
+                session.bakedIndexStarts.clear();
+                session.currentSearchPrefix = null;
+            } else if (stageName.equals("Ingredient sorting")) {
+                session.observedHooks.add("IngredientSorter.sortIngredients");
+            }
         }
     }
 
@@ -115,7 +126,99 @@ public final class JETOptimizerProfiler {
         if (session != null && JETOptimizerConfig.PLUGIN_PROFILING.get()) {
             session.pluginNanos.merge(uid, elapsedNanos, Long::sum);
             session.pluginUids.add(uid);
+            String phase = session.currentPluginPhase();
+            if (phase != null) {
+                session.pluginNanosByPhase.merge(new PluginCallbackKey(phase, uid), elapsedNanos, Long::sum);
+            }
         }
+    }
+
+    public static void beginPluginPhase(String title) {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null) {
+            session.pluginPhaseStack.push(new PluginPhaseFrame(title, System.nanoTime()));
+            session.observedHooks.add("PluginCaller.callOnPlugins phase timing");
+        }
+    }
+
+    public static void finishPluginPhase(String title) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null || session.pluginPhaseStack.isEmpty()) {
+            return;
+        }
+        PluginPhaseFrame frame = session.pluginPhaseStack.pop();
+        if (!frame.title.equals(title)) {
+            return;
+        }
+        long elapsed = System.nanoTime() - frame.startedAt;
+        if (JETOptimizerConfig.PROFILING.get()) {
+            session.pluginPhaseNanos.merge(title, elapsed, Long::sum);
+        }
+    }
+
+    public static long beginRecipeAddBatch(int batchSize) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null
+            || !JETOptimizerConfig.PROFILING.get()
+            || !isRegisteringRecipes(session)) {
+            return Long.MIN_VALUE;
+        }
+        session.recipeAddBatches++;
+        session.recipeAddRecipeCount += batchSize;
+        return System.nanoTime();
+    }
+
+    public static void finishRecipeAddBatch(long startedAt) {
+        if (startedAt == Long.MIN_VALUE) {
+            return;
+        }
+        Session session = ACTIVE_SESSION.get();
+        if (session != null) {
+            session.recipeAddNanos += System.nanoTime() - startedAt;
+        }
+    }
+
+    public static long beginRecipeMapInsert(int roleOrdinal) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null
+            || !JETOptimizerConfig.PROFILING.get()
+            || roleOrdinal < 0
+            || roleOrdinal >= RECIPE_INGREDIENT_ROLE_NAMES.length
+            || !isRegisteringRecipes(session)) {
+            return Long.MIN_VALUE;
+        }
+        return System.nanoTime();
+    }
+
+    public static void finishRecipeMapInsert(int roleOrdinal, long startedAt) {
+        if (startedAt == Long.MIN_VALUE || roleOrdinal < 0 || roleOrdinal >= RECIPE_INGREDIENT_ROLE_NAMES.length) {
+            return;
+        }
+        Session session = ACTIVE_SESSION.get();
+        if (session != null) {
+            session.recipeMapIndexNanos[roleOrdinal] += System.nanoTime() - startedAt;
+            session.recipeMapInsertCalls[roleOrdinal]++;
+        }
+    }
+
+    public static void beginRecipeLayoutBuild() {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && JETOptimizerConfig.PROFILING.get() && isRegisteringRecipes(session)) {
+            session.recipeLayoutStarts.push(System.nanoTime());
+        }
+    }
+
+    public static void finishRecipeLayoutBuild() {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && !session.recipeLayoutStarts.isEmpty()) {
+            session.recipeLayoutNanos += System.nanoTime() - session.recipeLayoutStarts.pop();
+            session.recipeLayoutCalls++;
+        }
+    }
+
+    private static boolean isRegisteringRecipes(Session session) {
+        PluginPhaseFrame frame = session.pluginPhaseStack.peek();
+        return frame != null && frame.title.equals("Registering recipes");
     }
 
     public static boolean isPluginProfilingActive() {
@@ -124,18 +227,102 @@ public final class JETOptimizerProfiler {
             && JETOptimizerConfig.PLUGIN_PROFILING.get();
     }
 
-    public static void recordIngredientCount(int count) {
-        Session session = ACTIVE_SESSION.get();
-        if (session != null) {
-            session.ingredientCount = count;
-        }
-    }
-
     public static void recordRecipeCategoryCount(int count) {
         Session session = ACTIVE_SESSION.get();
         if (session != null) {
             session.recipeCategoryCount = count;
         }
+    }
+
+    public static void recordIngredientCountsAtGuiBuild(int managerRaw, int managerTyped, int filterEntries) {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null) {
+            session.managerRawAtGuiBuild = managerRaw;
+            session.managerTypedAtGuiBuild = managerTyped;
+            session.filterEntriesAtGuiBuild = filterEntries;
+        }
+    }
+
+    public static void recordFinalIngredientCounts(int managerRaw, int managerTyped) {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null) {
+            session.ingredientCount = managerRaw;
+            session.finalManagerRaw = managerRaw;
+            session.finalManagerTyped = managerTyped;
+        }
+    }
+
+    public static void recordRuntimeIngredientMutation(boolean added, int requestedCount) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null) {
+            return;
+        }
+        if (added) {
+            session.runtimeIngredientAddCalls++;
+            session.runtimeIngredientAddRequests += requestedCount;
+        } else {
+            session.runtimeIngredientRemoveCalls++;
+            session.runtimeIngredientRemoveRequests += requestedCount;
+        }
+    }
+
+    public static void setCurrentSearchPrefix(String prefixId) {
+        Session session = activeSearchSession();
+        if (session != null) {
+            session.currentSearchPrefix = prefixId;
+        }
+    }
+
+    public static void beginSearchStringSource(String prefixId) {
+        Session session = activeSearchSession();
+        if (session != null) {
+            session.searchPrefixStarts.put(prefixId, System.nanoTime());
+            session.searchPrefixMetrics.computeIfAbsent(prefixId, ignored -> new SearchPrefixMetrics()).getterCalls++;
+        }
+    }
+
+    public static void finishSearchStringSource(String prefixId, int returnedStringCount) {
+        Session session = activeSearchSession();
+        if (session == null) {
+            return;
+        }
+        Long startedAt = session.searchPrefixStarts.remove(prefixId);
+        if (startedAt == null) {
+            return;
+        }
+        SearchPrefixMetrics metrics = session.searchPrefixMetrics.computeIfAbsent(prefixId, ignored -> new SearchPrefixMetrics());
+        metrics.stringSourceNanos += System.nanoTime() - startedAt;
+        metrics.returnedStringCandidates += returnedStringCount;
+    }
+
+    public static void beginBakedSubstringIndexBuild(int keyCount) {
+        Session session = activeSearchSession();
+        if (session == null) {
+            return;
+        }
+        String prefixId = session.currentSearchPrefix == null ? "unknown-prefix" : session.currentSearchPrefix;
+        session.bakedIndexStarts.push(new BakedIndexFrame(prefixId, System.nanoTime(), keyCount));
+    }
+
+    public static void finishBakedSubstringIndexBuild() {
+        Session session = activeSearchSession();
+        if (session == null || session.bakedIndexStarts.isEmpty()) {
+            return;
+        }
+        BakedIndexFrame frame = session.bakedIndexStarts.pop();
+        SearchPrefixMetrics metrics = session.searchPrefixMetrics.computeIfAbsent(frame.prefixId, ignored -> new SearchPrefixMetrics());
+        metrics.bakedBuildNanos += System.nanoTime() - frame.startedAt;
+        metrics.bakedBuildCalls++;
+        metrics.bakedKeyEntries += frame.keyCount;
+    }
+
+    private static Session activeSearchSession() {
+        Session session = ACTIVE_SESSION.get();
+        return session != null
+            && JETOptimizerConfig.PROFILING.get()
+            && session.stageStartedAt.containsKey("Ingredient search index construction")
+            ? session
+            : null;
     }
 
     private static void logProfile(Session session, long totalNanos) {
@@ -162,17 +349,140 @@ public final class JETOptimizerProfiler {
             .filter(entry -> !entry.getKey().equals("Ingredient list construction"))
             .filter(entry -> !entry.getKey().equals("Ingredient filter construction"))
             .filter(entry -> !entry.getKey().equals("Ingredient search index construction"))
+            .filter(entry -> !entry.getKey().equals("Ingredient sorting"))
             .mapToLong(Map.Entry::getValue)
             .sum();
         appendTiming(lines, "Other (unattributed)", Math.max(0L, totalNanos - topLevelStagesNanos));
         appendTiming(lines, "Total JEI start", totalNanos);
-        lines.append("Ingredient count: ").append(session.ingredientCount >= 0 ? session.ingredientCount : "unavailable").append('\n');
+        lines.append("Ingredient count (final raw manager): ").append(formatCount(session.ingredientCount)).append('\n');
+        appendIngredientCountAnalysis(lines, session);
         lines.append("Recipe category count: ").append(session.recipeCategoryCount >= 0 ? session.recipeCategoryCount : "unavailable").append('\n');
         if (JETOptimizerConfig.PLUGIN_PROFILING.get()) {
             lines.append("Plugin UIDs observed: ").append(session.pluginUids.size()).append('\n');
         }
         lines.append("Mixin hooks: ").append(session.observedHooks).append('\n');
+        appendRecipeRegistrationBreakdown(lines, session);
+        appendSearchIndexBreakdown(lines, session);
         JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
+    }
+
+    private static void appendIngredientCountAnalysis(StringBuilder lines, Session session) {
+        lines.append("Ingredient manager at GUI list build (raw/typed): ")
+            .append(formatCount(session.managerRawAtGuiBuild)).append('/')
+            .append(formatCount(session.managerTypedAtGuiBuild)).append('\n');
+        lines.append("IngredientFilter base-list entries: ").append(formatCount(session.filterEntriesAtGuiBuild)).append('\n');
+        lines.append("Ingredient manager after onRuntimeAvailable (raw/typed): ")
+            .append(formatCount(session.finalManagerRaw)).append('/')
+            .append(formatCount(session.finalManagerTyped)).append('\n');
+        if (session.managerRawAtGuiBuild >= 0 && session.finalManagerRaw >= 0) {
+            lines.append("Ingredient manager raw delta during JEI start: ")
+                .append(session.finalManagerRaw - session.managerRawAtGuiBuild).append('\n');
+        }
+        lines.append("Runtime ingredient add requests/calls: ").append(session.runtimeIngredientAddRequests)
+            .append('/').append(session.runtimeIngredientAddCalls).append('\n');
+        lines.append("Runtime ingredient remove requests/calls: ").append(session.runtimeIngredientRemoveRequests)
+            .append('/').append(session.runtimeIngredientRemoveCalls).append('\n');
+    }
+
+    private static String formatCount(int count) {
+        return count >= 0 ? Integer.toString(count) : "unavailable";
+    }
+
+    private static void appendRecipeRegistrationBreakdown(StringBuilder lines, Session session) {
+        long recipeStage = session.stageNanos.getOrDefault("Recipe and category registration", -1L);
+        if (recipeStage < 0L) {
+            return;
+        }
+        lines.append("Recipe/category registration detail (non-overlapping except noted):\n");
+
+        String[] callbackPhases = {
+            "Registering categories",
+            "Registering vanilla category extensions",
+            "Registering recipe catalysts",
+            "Registering advanced plugins",
+            "Registering recipes"
+        };
+        long measured = 0L;
+        for (String phase : callbackPhases) {
+            long elapsed = session.pluginPhaseNanos.getOrDefault(phase, 0L);
+            measured += elapsed;
+            if (!phase.equals("Registering recipes")) {
+                appendTiming(lines, "  " + phase, elapsed);
+            } else {
+                long recipeCallbacksWithoutAdd = Math.max(0L, elapsed - session.recipeAddNanos);
+                appendTiming(lines, "  registerRecipes plugin work outside addRecipes", recipeCallbacksWithoutAdd);
+                appendTiming(lines, "  RecipeManagerInternal.addRecipes (nested)", session.recipeAddNanos);
+                measured = measured - elapsed + recipeCallbacksWithoutAdd + session.recipeAddNanos;
+                lines.append("  Recipe addRecipes batches/recipes: ")
+                    .append(session.recipeAddBatches).append('/').append(session.recipeAddRecipeCount).append('\n');
+                appendTiming(lines, "    IngredientSupplierHelper category setRecipe", session.recipeLayoutNanos);
+                lines.append("      calls: ").append(session.recipeLayoutCalls).append('\n');
+                long recipeMapNanos = 0L;
+                for (int role = 0; role < session.recipeMapIndexNanos.length; role++) {
+                    long elapsedByRole = session.recipeMapIndexNanos[role];
+                    recipeMapNanos += elapsedByRole;
+                    appendTiming(lines, "    RecipeMap.addRecipe " + RECIPE_INGREDIENT_ROLE_NAMES[role], elapsedByRole);
+                    lines.append("      calls: ").append(session.recipeMapInsertCalls[role]).append('\n');
+                }
+                appendTiming(
+                    lines,
+                    "    Other addRecipes work",
+                    Math.max(0L, session.recipeAddNanos - session.recipeLayoutNanos - recipeMapNanos)
+                );
+            }
+        }
+
+        long registryBuild = session.stageNanos.getOrDefault("Recipe registry construction", 0L);
+        long advancedPluginWiring = session.stageNanos.getOrDefault("Advanced recipe-manager plugin wiring", 0L);
+        long compaction = session.stageNanos.getOrDefault("Recipe map compaction", 0L);
+        appendTiming(lines, "  Recipe registry construction", registryBuild);
+        appendTiming(lines, "  Advanced recipe-manager plugin wiring", advancedPluginWiring);
+        appendTiming(lines, "  Recipe map compaction", compaction);
+        measured += registryBuild + advancedPluginWiring + compaction;
+        appendTiming(lines, "  Other recipe-manager internals", Math.max(0L, recipeStage - measured));
+
+        List<Map.Entry<PluginCallbackKey, Long>> topRecipeCallbacks = session.pluginNanosByPhase.entrySet().stream()
+            .filter(entry -> entry.getKey().phase.equals("Registering recipes"))
+            .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+            .limit(10)
+            .toList();
+        if (!topRecipeCallbacks.isEmpty()) {
+            lines.append("  Slowest registerRecipes plugin callbacks (nested, top 10):\n");
+            for (Map.Entry<PluginCallbackKey, Long> entry : topRecipeCallbacks) {
+                appendTiming(lines, "    " + entry.getKey().pluginUid, entry.getValue());
+            }
+        }
+    }
+
+    private static void appendSearchIndexBreakdown(StringBuilder lines, Session session) {
+        long searchStage = session.stageNanos.getOrDefault("Ingredient search index construction", -1L);
+        if (searchStage < 0L) {
+            return;
+        }
+        lines.append("Ingredient search-index detail (nested in filter construction):\n");
+        long sourceNanos = 0L;
+        long bakeNanos = 0L;
+        for (Map.Entry<String, SearchPrefixMetrics> entry : session.searchPrefixMetrics.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .toList()) {
+            SearchPrefixMetrics metrics = entry.getValue();
+            sourceNanos += metrics.stringSourceNanos;
+            bakeNanos += metrics.bakedBuildNanos;
+            appendTiming(lines, "  source strings: " + entry.getKey(), metrics.stringSourceNanos);
+            lines.append("    getter calls/candidate strings: ").append(metrics.getterCalls).append('/')
+                .append(metrics.returnedStringCandidates).append('\n');
+            lines.append("    baked builds/index key entries: ").append(metrics.bakedBuildCalls).append('/')
+                .append(metrics.bakedKeyEntries).append('\n');
+        }
+        appendTiming(lines, "  Baked substring gram-index builds", bakeNanos);
+        int bakeCalls = session.searchPrefixMetrics.values().stream()
+            .mapToInt(metrics -> metrics.bakedBuildCalls)
+            .sum();
+        long keyEntries = session.searchPrefixMetrics.values().stream()
+            .mapToLong(metrics -> metrics.bakedKeyEntries)
+            .sum();
+        lines.append("  Baked index build calls/key entries: ").append(bakeCalls).append('/').append(keyEntries).append('\n');
+        appendTiming(lines, "  Other search-index work", Math.max(0L, searchStage - sourceNanos - bakeNanos));
     }
 
     private static void logPluginTimings(Session session) {
@@ -199,14 +509,61 @@ public final class JETOptimizerProfiler {
         private final Map<String, Long> stageStartedAt = new HashMap<>();
         private final Map<String, Long> pluginNanos = new HashMap<>();
         private final Set<String> pluginUids = new HashSet<>();
-        private final List<String> observedHooks = new ArrayList<>();
+        private final Set<String> observedHooks = new LinkedHashSet<>();
+        private final Map<String, Long> pluginPhaseNanos = new HashMap<>();
+        private final Map<PluginCallbackKey, Long> pluginNanosByPhase = new HashMap<>();
+        private final Deque<PluginPhaseFrame> pluginPhaseStack = new ArrayDeque<>();
+        private final Map<String, SearchPrefixMetrics> searchPrefixMetrics = new HashMap<>();
+        private final Map<String, Long> searchPrefixStarts = new HashMap<>();
+        private final Deque<BakedIndexFrame> bakedIndexStarts = new ArrayDeque<>();
+        private final Deque<Long> recipeLayoutStarts = new ArrayDeque<>();
+        private String currentSearchPrefix;
+        private long recipeAddNanos;
+        private int recipeAddBatches;
+        private int recipeAddRecipeCount;
+        private long recipeLayoutNanos;
+        private int recipeLayoutCalls;
+        private final long[] recipeMapIndexNanos = new long[RECIPE_INGREDIENT_ROLE_NAMES.length];
+        private final int[] recipeMapInsertCalls = new int[RECIPE_INGREDIENT_ROLE_NAMES.length];
         private int ingredientCount = -1;
         private int recipeCategoryCount = -1;
+        private int managerRawAtGuiBuild = -1;
+        private int managerTypedAtGuiBuild = -1;
+        private int filterEntriesAtGuiBuild = -1;
+        private int finalManagerRaw = -1;
+        private int finalManagerTyped = -1;
+        private int runtimeIngredientAddCalls;
+        private int runtimeIngredientAddRequests;
+        private int runtimeIngredientRemoveCalls;
+        private int runtimeIngredientRemoveRequests;
 
         private Session(long startedAt, PendingRecipeSync recipeSync) {
             this.startedAt = startedAt;
             this.recipeSync = recipeSync;
         }
+
+        private String currentPluginPhase() {
+            PluginPhaseFrame frame = pluginPhaseStack.peek();
+            return frame == null ? null : frame.title;
+        }
+    }
+
+    private record PluginCallbackKey(String phase, String pluginUid) {
+    }
+
+    private record PluginPhaseFrame(String title, long startedAt) {
+    }
+
+    private record BakedIndexFrame(String prefixId, long startedAt, int keyCount) {
+    }
+
+    private static final class SearchPrefixMetrics {
+        private long stringSourceNanos;
+        private long returnedStringCandidates;
+        private int getterCalls;
+        private long bakedBuildNanos;
+        private int bakedBuildCalls;
+        private long bakedKeyEntries;
     }
 
     private record PendingRecipeSync(long packetStartedAt, long eventAt, int recipeCount) {

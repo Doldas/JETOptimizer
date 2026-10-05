@@ -47,14 +47,20 @@ abstract class JeiStarterMixin {
     }
 
     private static void recordIngredientCount(IJeiRuntime runtime) {
-        int count = 0;
+        int rawCount = 0;
+        int typedCount = 0;
         for (IIngredientType<?> type : runtime.getIngredientManager().getRegisteredIngredientTypes()) {
-            count += ingredientCount(runtime, type);
+            rawCount += rawIngredientCount(runtime, type);
+            typedCount += typedIngredientCount(runtime, type);
         }
-        JETOptimizerProfiler.recordIngredientCount(count);
+        JETOptimizerProfiler.recordFinalIngredientCounts(rawCount, typedCount);
     }
 
-    private static <T> int ingredientCount(IJeiRuntime runtime, IIngredientType<T> type) {
+    private static <T> int rawIngredientCount(IJeiRuntime runtime, IIngredientType<T> type) {
         return runtime.getIngredientManager().getAllIngredients(type).size();
+    }
+
+    private static <T> int typedIngredientCount(IJeiRuntime runtime, IIngredientType<T> type) {
+        return runtime.getIngredientManager().getAllTypedIngredients(type).size();
     }
 }

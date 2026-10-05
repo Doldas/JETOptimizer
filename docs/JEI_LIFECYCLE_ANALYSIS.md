@@ -117,16 +117,16 @@ JEI source already calls `LoggedTimer` around several actual internal boundaries
 | Desired measurement | Source boundary / existing measurement | Limitation / next instrumentation need |
 |---|---|---|
 | Full JEI start | `JeiStarter.start()` `LoggedTimer` titled `Starting JEI` | Begins after initial level/registry/fallback setup; excludes recipe packet handling and post-start verification. |
-| Plugin callback phases | `PluginCaller.callOnPlugins(title, plugins, func)` logs phase duration; `PluginCallerTimer` logs each individual callback only after >10 ms | Already gives accurate phase/slow-plugin evidence. Aggregate totals by plugin UID across callback phases need additional opt-in measurement, likely a narrow hook around `Consumer.accept`. |
+| Plugin callback phases | `PluginCaller.callOnPlugins(title, plugins, func)` logs phase duration; `PluginCallerTimer` logs each individual callback only after >10 ms. JETOptimizer additionally aggregates callback wall time by UID and callback phase when plugin profiling is enabled. | Callback totals overlap the containing JEI method stages. They are diagnostic subdivisions, not additive stage contributions. |
 | Ingredient registration/enumeration | `PluginLoader.registerIngredients()` wraps registration, extra ingredients, and aliases in named `PluginCaller` phases; `IngredientManagerBuilder.registerInternal()` loops registered ingredient values and creates/validates typed ingredients | Distinguish time in plugin-supplied collection production from JEI's per-item typed ingredient conversion/registration. Prefer callback timings first; add internal timing only if needed. |
-| Recipe categories / recipe registration | `PluginLoader.createRecipeManager()` wraps category, catalyst, advanced, and recipe plugin callbacks; `RecipeManagerInternal.addRecipes()` processes recipe objects and recipe ingredient slots; `compact()` compacts maps | Existing category-phase and callback logs are available; no distinct aggregate `addRecipes` vs recipe-slot extraction timer. Narrow timing around these actual methods may be justified after baseline. |
+| Recipe categories / recipe registration | `PluginLoader.createRecipeManager()` wraps category/catalyst/advanced/recipe callbacks. JETOptimizer records each named `PluginCaller` phase, `RecipeManagerInternal` construction, `addPlugins`, `compact`, recipe batches through `RecipeRegistration.addRecipes`, `IngredientSupplierHelper.getIngredientSupplier`, and `RecipeMap.addRecipe` by role. | Add-recipes, supplier and map-role timers are nested in the `Registering recipes` callback phase and in `createRecipeManager`. See `docs/JEI_PERFORMANCE_ANALYSIS.md` for the parent/child arithmetic. |
 | Ingredient list | `JeiGuiStarter.start()` timer `Building ingredient list`; `IngredientListElementFactory.createBaseList(...)` | Source-backed list construction boundary. Ingredient count can be obtained from manager ingredient collections without enumerating/logging each ingredient. |
-| Filter/search-index construction | `JeiGuiStarter.start()` timer `Building ingredient filter`; `IngredientFilter` constructor sorts, calls `createElementSearch` to construct `ElementSearch`/`ElementSearchLowMem`, and updates visibility for the ingredient list | JEI's timer is combined. JETOptimizer's opt-in hook measures `IngredientFilter.createElementSearch` as a nested stage and measures the full constructor separately. `getElements()` filtering is lazy and should be separately observed if it contributes during startup. |
-| GUI/runtime construction | `JeiStarter.start()` `Building runtime` timer covers screen-helper callbacks, `registerRuntime` and the JEI GUI plugin's `JeiGuiStarter.start()` | Can be attributed via existing JEI phase log and additional section timers if GUI subcomponents prove material. |
+| Filter/search-index construction | JEI's timer `Building ingredient filter` wraps sorting, filter construction, `createElementSearch`, and visibility updates. JETOptimizer measures `IngredientSorter.sortIngredients`, the full `IngredientFilter` constructor, `createElementSearch`, per-prefix string-source generation, and default baked substring index building/key counts. | Per-prefix generation and baking are nested within `createElementSearch`; the whole search stage is nested in the filter and GUI stages. The lazy `getElements()` query path remains separate if traces show it runs during startup. |
+| GUI/runtime construction | `JeiStarter.start()` `Building runtime` timer covers screen-helper callbacks, `registerRuntime` and the JEI GUI plugin's `JeiGuiStarter.start()` | JETOptimizer separately times `JeiGuiStarter.start()` and its list/filter/index construction children. These child timings overlap the GUI-runtime parent. |
 | KubeJS / other `onRuntimeAvailable` work | `PluginCaller.callOnPlugins("Sending Runtime", ...)` has phase and slow-callback timings | This matches the known ~5s KubeJS callback location; collect raw JEI timing logs rather than repeating disproven removal-rule A/B tests. |
-| Minecraft recipe sync | NeoForge `RecipesUpdatedEvent`; JEI's handler snapshots recipe list, observer starts after required events | Outside `Starting JEI`; capture event/packet timestamps and elapsed main-thread segments in JETOptimizer to report separately. |
+| Minecraft recipe sync | NeoForge `RecipesUpdatedEvent`; JEI's handler snapshots recipe list, observer starts after required events | Outside `Starting JEI`; JETOptimizer marks `ClientPacketListener.handleUpdateRecipes` entry and separates handler-to-event from event-to-JEI time. It does not measure transport/decode/queue time. |
 
-`PluginCallerTimer` itself creates a scheduled executor and checks the active callback every 100 ms. This is existing JEI profiler overhead and is a reason to compare repeated baselines and avoid installing per-ingredient probes.
+`PluginCallerTimer` itself creates a scheduled executor and checks the active callback every 100 ms. This is existing JEI profiler overhead and is a reason to compare repeated baselines and avoid installing per-ingredient probes. JETOptimizer's new per-prefix search instrumentation samples once per prefix getter call and reads the returned collection size; it does not enumerate/log each ingredient or string.
 
 ## Disconnect/reload behavior and lifecycle details
 
@@ -150,13 +150,7 @@ JEI source already calls `LoggedTimer` around several actual internal boundaries
 
 ## Phase 1 instrumentation recommendation
 
-Start with public NeoForge events and JEI's existing timed phases. Record monotonic timestamps for connection/login, the entry to the client recipe handler, the recipe-update event, JEI's exact `LoggedTimer.start("Starting JEI")` / corresponding stop boundary, and lifecycle stop. JETOptimizer's opt-in hook implements those points and supplements JEI's actual method boundaries. Existing `PluginCaller` phase/slow-callback logs provide a cross-check; JETOptimizer aggregates callback times by UID. Emit one JETOptimizer summary after JEI start with the phase timings and safely available counts.
-
-If the first trace still leaves a material unexplained portion, add narrowly scoped, version-gated hooks for:
-
-1. `JeiGuiStarter.start()` around `IngredientListElementFactory.createBaseList` and its actual `IngredientFilter` construction (to split sorting/index/visibility only if the internal stage is currently dominant).
-2. `RecipeManagerInternal.addRecipe` / its bulk caller only if existing recipe registration phase data cannot separate recipe-slot extraction from plugin time.
-3. Individual plugin invocation inside `PluginCaller.callOnPlugins`, accumulating elapsed nanoseconds keyed by plugin UID and callback title. JEI already logs callbacks over 10 ms; the extra hook should be opt-in and aggregate-only.
+The current profiler implements the source-confirmed event/timer boundaries and narrow recipe/search sub-stages listed above. The next ATM profile should evaluate whether those non-overlapping parent/child intervals explain at least 90% of startup. Any further hook should be justified by the remaining residual and should avoid per-recipe/per-ingredient instrumentation.
 
 ### Development profiler smoke test
 
@@ -175,7 +169,7 @@ These are profiling hooks, not optimization proposals. No source-backed lifecycl
 
 For baseline A (first join), unchanged reconnect B, server restart C, changed recipes/datapack D/E, server switch F, KubeJS change G, `/reload` H, resource reload I, and singleplayer J, record:
 
-* timestamp/duration from recipe packet/event entry through `RecipesUpdatedEvent`;
+* timestamp/duration from `ClientPacketListener.handleUpdateRecipes` entry through `RecipesUpdatedEvent` (not network receive/decoding/queue time);
 * JEI `Starting JEI`, plus `Building runtime`, `Building recipe registry`, `Building ingredient list`, and `Building ingredient filter`;
 * `PluginCaller` callback phase and per-plugin lines (especially `Sending Runtime` / KubeJS);
 * registered ingredient count, client recipe count, category count where available;
