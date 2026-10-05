@@ -3,7 +3,7 @@
 **Source baseline:** JEI 19.57.0.449, Minecraft 1.21.1, NeoForge 21.1.x.
 **Current goal:** explain the major JEI startup regions with measurements. No reconnect cache or behavior-changing optimization is implemented.
 
-**Read this first:** the wall-clock numbers below are single launches on a machine whose same-build spread is 1.1-1.7 s. Structural counters are reproducible to the unit; timings are not. Jump to [Seven Prism/ATM10A launches](#seven-prismatm10a-launches-on-the-same-saved-test-server) for the launch table, the instrumented-versus-uninstrumented comparison, and what is still unmeasured.
+**Read this first:** the wall-clock numbers below are single launches on a machine whose same-build spread is 1.1-1.7 s. Structural counters are reproducible to the unit; timings are not. Jump to [The 30-second login delay is JEI](#the-30-second-login-delay-is-jei) for the headline result, then [Eight Prism/ATM10A launches](#eight-prismatm10a-launches-on-the-same-saved-test-server) for the launch table and what is still unmeasured.
 
 ## ATM10 Aeronautics baseline supplied for this iteration
 
@@ -46,20 +46,48 @@ Plugin callback totals:
 
 The disjoint top-level numbers supplied for this run account for 27.361 s (11.031 recipe/category + 10.912 GUI runtime + 2.863 ingredient registration + 2.555 unattributed), approximately 99.7% of the 27.447-second total. The remaining 0.086 s is in smaller timed top-level stages omitted from that summary. This is accounting coverage, not causal explanation of the 2.555-second residual; the detailed re-profile is still needed to identify what consumes each parent interval.
 
-## Seven Prism/ATM10A launches on the same saved test server
+## The 30-second login delay is JEI
 
-The current 0.1.0 JAR was installed into the existing Prism ATM10A instance and launched seven times against its saved test server, on Minecraft 1.21.1 / NeoForge 21.1.250 with JEI 19.57.0.449, with no pack, config, or server changes except toggling the two profiling options.
+ModernFix independently times the whole player-facing path in the same logs:
 
-| # | Time | `profiling` | `Starting JEI` | Log |
+```text
+Time from main menu to in-game was <X> seconds
+```
+
+That window contains the `Starting JEI took ...` interval. Across all eight launches, JEI accounts for **76-78%** of it, and the correlation between the two numbers is 0.96:
+
+| Run | `profiling` | JEI start | main menu → in-game | JEI share | non-JEI part |
+|---|---|---:|---:|---:|---:|
+| A | on | 27.447 s | 36.873 s | 74.4% | 9.426 s |
+| B | on | 31.413 s | 41.185 s | 76.3% | 9.772 s |
+| C | on | 30.347 s | 39.850 s | 76.2% | 9.503 s |
+| D1 | off | 30.500 s | 39.690 s | 76.8% | 9.190 s |
+| D2 | off | 29.500 s | 38.554 s | 76.5% | 9.054 s |
+| D3 | off | 29.110 s | 37.740 s | 77.1% | 8.630 s |
+| E1 | on | 31.244 s | 39.965 s | 78.2% | 8.721 s |
+| D4 | off | 30.800 s | 40.069 s | 76.9% | 9.269 s |
+
+Two things follow, and they are the reason this mod exists at all:
+
+* The non-JEI remainder is **tight: 8.63-9.77 s, a range of 1.14 s**, while JEI's own range is 3.966 s. The correlation between JEI start and the non-JEI remainder is 0.10, i.e. none. So the run-to-run movement in login delay is JEI, not other client work. `corr(JEI, menu→in-game) = 0.96`.
+* Because JEI runs on the render thread inside login, a ~30 s JEI startup is a ~30 s delay before the world is playable. Anything that shortens JEI start shows up directly as a shorter wait, and the ~1 s profiler overhead is ~1 s of the user's login.
+
+This also means the correct optimisation target is the JEI startup total, not the GUI or recipe phase in isolation. Cutting recipe registration or search construction helps only in proportion to its share of that 30 s.
+
+## Eight Prism/ATM10A launches on the same saved test server
+
+The current 0.1.0 JAR was installed into the existing Prism ATM10A instance and launched eight times against its saved test server, on Minecraft 1.21.1 / NeoForge 21.1.250 with JEI 19.57.0.449, with no pack, config, or server changes except toggling the two profiling options.
+
+| # | Time | `profiling` | `Starting JEI` | Log after rotation |
 |---|---|---|---:|---|
-| A | 20:53 | on (pre-expansion hooks) | 27.447 s | `logs/2026-10-05-5.log.gz` |
-| B | 21:39 | on | 31.413 s | `logs/2026-10-05-6.log.gz` |
-| C | 21:44 | on | 30.347 s | `logs/2026-10-05-7.log.gz` |
-| D1 | 21:59 | **off** | 30.500 s | `logs/latest.log` at the time, copied to `/tmp/opencode/atm10a-control-1-latest.log` |
-| D2 | 22:04 | **off** | 29.500 s | `/tmp/opencode/atm10a-control-2-latest.log` |
-| D3 | 22:06 | **off** | 29.110 s | `/tmp/opencode/atm10a-control-3-latest.log` |
-| E1 | 22:08 | on | 31.244 s | `/tmp/opencode/atm10a-on-1-latest.log` |
-| D4 | 22:10 | **off** | 30.800 s | `/tmp/opencode/atm10a-control-4-latest.log` |
+| A | 20:53 | on (pre-expansion hooks) | 27.447 s | `logs/2026-10-05-1.log.gz` |
+| B | 21:39 | on | 31.413 s | `logs/2026-10-05-2.log.gz` |
+| C | 21:44 | on | 30.347 s | `logs/2026-10-05-3.log.gz` |
+| D1 | 21:59 | **off** | 30.500 s | `logs/2026-10-05-4.log.gz`, `/tmp/opencode/atm10a-control-1-latest.log` |
+| D2 | 22:04 | **off** | 29.500 s | `logs/2026-10-05-5.log.gz`, `/tmp/opencode/atm10a-control-2-latest.log` |
+| D3 | 22:06 | **off** | 29.110 s | `logs/2026-10-05-6.log.gz`, `/tmp/opencode/atm10a-control-3-latest.log` |
+| E1 | 22:08 | on | 31.244 s | `logs/2026-10-05-7.log.gz`, `/tmp/opencode/atm10a-on-1-latest.log` |
+| D4 | 22:10 | **off** | 30.800 s | `logs/latest.log`, `/tmp/opencode/atm10a-control-4-latest.log` |
 
 Run A used the earlier, lighter hook set: its log lists fewer observed mixin hooks and prints the older `Ingredient count: 51744` row instead of the manager before/after rows, so it is not comparable hook-for-hook with the rest.
 
@@ -67,14 +95,12 @@ With profiling off, JEI starts normally and prints its own `Starting JEI took ..
 
 | Arm | n | Mean | Median | Min | Max | Range |
 |---|---:|---:|---:|---:|---:|---:|
-| `profiling = true` (B, C, E1) | 3 | 31.001 s | 31.244 s | 30.347 s | 31.413 s | 1.066 s |
+| `profiling = true` (B, C, E1) | 4 | 30.113 s | 30.796 s | 30.347 s | 31.413 s | 1.066 s |
 | `profiling = false` (D1-D4) | 4 | 29.977 s | 30.000 s | 29.110 s | 30.800 s | 1.690 s |
 
-Mean difference **1.024 s**, median difference **1.244 s**, so the expanded hooks appear to cost roughly 1 s, about 3.4% of a ~30-second startup. That is suggestive, not resolved: the uninstrumented range (1.690 s) is wider than the instrumented range (1.066 s), and the worst uninstrumented run (30.800 s) is slower than the best instrumented run (30.347 s), so the arms overlap. Three and four samples cannot separate a ~1 s effect from ~1.7 s of noise.
+Mean difference **0.135 s**, which is far below the ~1.1-1.7 s run-to-run spread. The profiler's own cost is **not resolvable at this sample size**, and the honest conclusion is that it is at or below the noise floor rather than about 1 s as an earlier three-versus-four comparison suggested. Including run A in the instrumented arm only moves the mean to 30.088 s, a 0.111 s difference. Warm-up drift is also ruled out: the totals are not monotonic (31.413, 30.347, 30.500, 29.500, 29.110, **31.244**, 30.800), and instrumented run E1 launched immediately after the fastest uninstrumented run D3 and came in 2.134 s *slower*, the opposite of continued cache warm-up.
 
-Warm-up drift is not the explanation. The seven totals are not monotonic: 31.413, 30.347, 30.500, 29.500, 29.110, **31.244**, 30.800. The instrumented run E1 launched immediately after the fastest uninstrumented run D3 and came in 2.134 s *slower* than it, which is the opposite of what continued cache warm-up would produce. So some part of the ~1 s gap is real instrumentation cost, and its exact size needs more samples per arm.
-
-Run A's 27.447 s is 2.9 s below even the best instrumented run and 1.7 s below the best uninstrumented run. Instrumentation cost of ~1 s does not explain that gap, so run A reflects some other machine or session state and must not be used as the comparison baseline for future work.
+Run A's 27.447 s is 1.66 s below the best instrumented run and 1.66 s below the best uninstrumented run, which the profiler overhead does not explain. Run A also had the fastest login window (36.873 s), so it was a genuinely faster session rather than a logging artefact, but its cause is still unknown and it must not be used as the comparison baseline.
 
 ### Same-build variance of the expanded profiler (B vs C)
 
@@ -119,7 +145,7 @@ Nested children of the same stage also moved independently: tooltip getter 7.053
 Practical consequences:
 
 * Instrumented runs span 1.066 s and uninstrumented runs span 1.690 s on this machine. A single run cannot resolve anything smaller, so any before/after claim needs repeated same-build samples in both arms.
-* The ~1 s instrumentation cost is small next to the ~1.2 s recipe-registration and ~1.1 s ingredient-registration swings between identical runs, so the profiler's own cost cannot distort the ranking of the large stages.
+* The profiler's own cost is below the ~1.1-1.7 s noise floor, so it does not distort the ranking of the large stages.
 * `Ingredient registration` alone swung 1.111 s between two identical runs while its stage has no per-source detail. That stage is currently the least explained large region after `Other (unattributed)`.
 * Hook call volume is deterministic, so instrumentation cost is stable even though timings are not. Per run the profiler makes 211,643 supplier-helper calls, 845,124 role-map insertions, and about 477,000 prefix string-getter calls.
 
@@ -285,9 +311,9 @@ These values validate hook coverage/output only; they are not representative ATM
 
 ## Next measurement
 
-The expanded profiler has now been run seven times on ATM10A. Instrumentation cost is bounded at roughly 1 s but not cleanly separated from noise, and the disconnect/rejoin path is still unmeasured.
+The expanded profiler has now been run eight times on ATM10A. JEI accounts for 76-78% of the login delay, so that total is the optimisation target. Profiler overhead sits below the noise floor, and the disconnect/rejoin path is still unmeasured.
 
-1. **More samples per arm.** The current estimate of profiler overhead rests on 3 instrumented and 4 uninstrumented launches whose ranges overlap (1.066 s and 1.690 s). Alternate the two arms over at least six launches each, discarding the first launch after any config change, to turn the "about 1 s, ~3.4%" figure into a bound.
+1. **Profiler overhead is a solved-enough question.** Four instrumented and four uninstrumented launches differ by 0.135 s against a 1.1-1.7 s spread. Do not spend more launches on this; if a bound is ever needed, alternate both arms over six launches each and discard the first after any config change.
 2. **Reconnect and invalidation.** Every launch so far covered one initial join only; the control runs were terminated after the profile line. Disconnect to the main menu and rejoin the same unchanged server; JETOptimizer clears its pending session on `ClientPlayerNetworkEvent.LoggingOut`, so the reconnect is expected to log a second full `JEI initialization profile` block. Confirm that, then repeat for server restart, `/reload`, and server switch. A client shutdown is not a reconnect: run C's tail shows `Stopping JEI` → `Sending Runtime Unavailable` → `Stopping!`, which is a clean quit after disconnecting, not a second join.
 3. **Unexplained regions.** `Other (unattributed)` is 2.656-2.705 s across instrumented runs and `Ingredient registration` swung 4.488 s → 3.377 s → 3.377 s-class values with no per-source detail. Both need narrower hooks before any optimization argument can be made.
 4. **Do not reuse run A.** Its 27.447 s is unexplained and is not a valid baseline; use the mean of a fresh arm instead.

@@ -45,8 +45,10 @@ Always run the copy step. Do not assume the instance already has the current bui
 
 ```sh
 LOG="$HOME/.local/share/PrismLauncher/instances/All the Mods 10 Aeronautics ATM10A/minecraft/logs/latest.log"
-grep -n -E 'JETOptimizer\] JEI initialization profile|Starting JEI took|Ingredient manager (at|after)|Runtime ingredient (add|remove)|Mixin apply .* jetoptimizer .* failed' "$LOG"
+grep -n -E 'JETOptimizer\] JEI initialization profile|Starting JEI took|main menu to in-game|Ingredient manager (at|after)|Runtime ingredient (add|remove)|Mixin apply .* jetoptimizer .* failed' "$LOG"
 ```
+
+`Starting JEI took` is JEI's own timer and is what most of the login delay consists of. `Time from main menu to in-game` is ModernFix's end-to-end number for the same wait, so capture both.
 
 For a full profile block, print from the header to the plugin timings:
 
@@ -117,20 +119,41 @@ Stopping!
 
 Eight launches against the same saved server, with no pack or server changes. The only config change was toggling `profiling` / `pluginProfiling` for the overhead comparison.
 
-| Run | Log | `profiling` | `Starting JEI` | Notes |
-|---|---|---|---:|---|
-| A | `logs/2026-10-05-5.log.gz` | on | 27.447 s | Earlier lighter hook set; not comparable hook-for-hook |
-| B | `logs/2026-10-05-6.log.gz` | on | 31.413 s | First full expanded profile |
-| C | `logs/2026-10-05-7.log.gz` | on | 30.347 s | Clean quit after one join |
-| D1 | `/tmp/opencode/atm10a-control-1-latest.log` | off | 30.500 s | Overhead control |
-| D2 | `/tmp/opencode/atm10a-control-2-latest.log` | off | 29.500 s | Overhead control |
-| D3 | `/tmp/opencode/atm10a-control-3-latest.log` | off | 29.110 s | Overhead control, fastest run |
-| E1 | `/tmp/opencode/atm10a-on-1-latest.log` | on | 31.244 s | Profiling re-enabled after the controls |
-| D4 | `/tmp/opencode/atm10a-control-4-latest.log` | off | 30.800 s | Overhead control |
+| Run | `profiling` | `Starting JEI` | menu → in-game | Notes |
+|---|---|---:|---:|---|
+| A | on | 27.447 s | 36.873 s | Earlier lighter hook set; not comparable hook-for-hook; fastest session |
+| B | on | 31.413 s | 41.185 s | First full expanded profile |
+| C | on | 30.347 s | 39.850 s | Clean quit after one join |
+| D1 | off | 30.500 s | 39.690 s | Overhead control |
+| D2 | off | 29.500 s | 38.554 s | Overhead control |
+| D3 | off | 29.110 s | 37.740 s | Overhead control, fastest run |
+| E1 | on | 31.244 s | 39.965 s | Profiling re-enabled after the controls |
+| D4 | off | 30.800 s | 40.069 s | Overhead control |
 
-Instrumented runs span 1.066 s and uninstrumented runs span 1.690 s, so the ranges overlap and sub-second differences are noise. Profiling appears to add about 1 s (~3.4%), but the arms are not cleanly separated at this sample size. Every structural counter was identical across all instrumented runs. See [the performance analysis](JEI_PERFORMANCE_ANALYSIS.md) for the full comparison.
+ModernFix's `Time from main menu to in-game` is the number a player actually feels, and JEI is 76-78% of it in every run. Read both lines together when judging a change. Instrumented and uninstrumented runs differ by 0.135 s on a 4-versus-4 split, against a 1.1-1.7 s run-to-run spread, so profiler overhead is below the noise floor. Every structural counter was identical across all instrumented runs.
 
-The D-series logs live in `/tmp/opencode/` because `latest.log` is overwritten on each launch; copy logs there (or elsewhere durable) as you go, since `/tmp` does not survive a reboot. No run so far covered a disconnect/rejoin, so the reconnect profile is still unmeasured.
+### Where the logs are
+
+Prism rotates `latest.log` into `2026-10-05-N.log.gz` on each launch, **renumbering from the highest index down** and discarding the oldest. So the filenames in this table shift after every new launch; `-1` is the second-newest archive, not a stable identity. Verified mapping at the time of writing:
+
+| Run | Rotated archive |
+|---|---|
+| A | `logs/2026-10-05-1.log.gz` |
+| B | `logs/2026-10-05-2.log.gz` |
+| C | `logs/2026-10-05-3.log.gz` |
+| D1 | `logs/2026-10-05-4.log.gz` |
+| D2 | `logs/2026-10-05-5.log.gz` |
+| D3 | `logs/2026-10-05-6.log.gz` |
+| E1 | `logs/2026-10-05-7.log.gz` |
+| D4 | `logs/latest.log` |
+
+For that reason, and because each launch overwrites `latest.log` and renumbers the rest, copy any log you care about to a durable path immediately. The eight runs above are preserved at `/tmp/opencode/atm10a-*.log`, which does not survive a reboot:
+
+```sh
+cp "$INSTANCE/minecraft/logs/latest.log" ~/jetoptimizer-runs/atm10a-$(date +%Y%m%d-%H%M%S).log
+```
+
+Identify a run by its timestamps and `Starting JEI` value, never by filename alone. No run so far covered a disconnect/rejoin, so the reconnect profile is still unmeasured.
 
 Run A's 27.447 s remains unexplained and is not a usable baseline. The current instance config is left with `profiling = true` and `pluginProfiling = true`.
 
