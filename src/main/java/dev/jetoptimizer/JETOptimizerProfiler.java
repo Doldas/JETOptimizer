@@ -24,6 +24,9 @@ public final class JETOptimizerProfiler {
     private static final ThreadLocal<Session> ACTIVE_SESSION = new ThreadLocal<>();
 
     private static final AtomicInteger CONNECTION_GENERATION = new AtomicInteger();
+
+    private static final String UNKNOWN_TARGET = "unknown (no server address available)";
+    private static final String INTEGRATED_TARGET = "integrated server (local world)";
     private static volatile GenerationSnapshot previousGenerationSnapshot;
 
     private static volatile long recipePacketStartedAt;
@@ -111,12 +114,20 @@ public final class JETOptimizerProfiler {
         try {
             Minecraft minecraft = Minecraft.getInstance();
             if (minecraft == null) {
-                return "unknown";
+                return UNKNOWN_TARGET;
+            }
+            // An integrated server has no address, so it must be named explicitly. Otherwise a local
+            // world and a remote server would both report "unknown" and look interchangeable.
+            if (minecraft.hasSingleplayerServer()) {
+                return INTEGRATED_TARGET;
             }
             var serverData = minecraft.getCurrentServer();
-            return serverData == null ? "unknown" : serverData.ip;
+            if (serverData == null || serverData.ip == null || serverData.ip.isBlank()) {
+                return UNKNOWN_TARGET;
+            }
+            return serverData.ip;
         } catch (RuntimeException | LinkageError e) {
-            return "unknown";
+            return UNKNOWN_TARGET;
         }
     }
 
@@ -419,9 +430,8 @@ public final class JETOptimizerProfiler {
     }
 
     private static void appendConnectionIdentity(StringBuilder lines, Session session) {
-        boolean reconnect = session.generation > 1;
         lines.append("Connection generation: ").append(session.generation)
-            .append(reconnect ? " (in-game reconnect)" : " (first join in this process)")
+            .append(" (").append(describeJoinKind(session)).append(')')
             .append('\n');
         GenerationSnapshot previous = session.previousSnapshot;
         if (previous == null) {
@@ -434,6 +444,24 @@ public final class JETOptimizerProfiler {
         long gapSeconds = Math.max(0L, session.startedAtEpochMillis - previous.startedAtEpochMillis) / 1000L;
         lines.append("Previous connection in this process: generation ").append(previous.generation)
             .append(", ").append(gapSeconds).append(" s earlier\n");
+    }
+
+    /**
+     * Generation counts logins, so generation &gt; 1 only proves the process logged in again. It does
+     * not prove the target was the same remote server: a local world also logs in and has no address.
+     * The kind is therefore derived from both the generation and the target that was observed.
+     */
+    private static String describeJoinKind(Session session) {
+        if (session.generation <= 1) {
+            return "first join in this process";
+        }
+        if (INTEGRATED_TARGET.equals(session.serverAddress)) {
+            return "in-game join to a local single player world";
+        }
+        if (UNKNOWN_TARGET.equals(session.serverAddress)) {
+            return "in-game join, target could not be identified";
+        }
+        return "in-game reconnect to a remote server";
     }
 
     private static void appendStructuralComparison(StringBuilder lines, Session session) {

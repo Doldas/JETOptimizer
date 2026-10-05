@@ -32,13 +32,24 @@ These need no new mixins. `JETOptimizer` already listens to `ClientPlayerNetwork
 Each profile therefore starts with:
 
 ```text
-Connection generation: 2 (in-game reconnect)
+Connection generation: 2 (in-game reconnect to a remote server)
 Server address: 10.0.0.5:25565 (unchanged)
 Previous connection in this process: generation 1, 47 s earlier
 ```
 
+The parenthetical is the *join kind*, and it is derived from the generation and the observed target rather than from the generation alone, because a generation count only proves the process logged in again. The four values are:
+
+| Parenthetical | Meaning |
+|---|---|
+| `first join in this process` | Generation 1, so a cold launch. |
+| `in-game reconnect to a remote server` | Generation above 1 with a readable remote address. |
+| `in-game join to a local single player world` | Generation above 1, and `Minecraft.hasSingleplayerServer()` was true. |
+| `in-game join, target could not be identified` | Generation above 1 with no address and no integrated server. |
+
+The local-world case matters because `ServerData.ip` is null for an integrated server, so it would otherwise print as unknown and look like an unreachable remote server. `currentServerAddress()` therefore reports `integrated server (local world)` and `unknown (no server address available)` as distinct targets, and both are ordinary strings, so a target change is still detected as `CHANGED`. This also means a local-world join is not a substitute for a remote reconnect when reasoning about server payload: JEI runs the same full startup for both, but the recipe and ingredient content comes from somewhere else entirely.
+
 When a previous generation was profiled in the same process, the profile also prints `Structural comparison vs generation N: X of Y comparable fields differ`, followed by one `unchanged`/`CHANGED` line per field. The compared set is deliberately limited to connection-independent quantities: client recipe count, recipe-category count, `addRecipes` batches and recipes, `setRecipe` calls, per-role `RecipeMap.addRecipe` call counts, ingredient-manager counts before and after `onRuntimeAvailable`, runtime add/remove request counts, per-prefix getter calls and candidate-string counts, baked index build calls and key entries, and the observed plugin UID count plus an order-independent set hash. No timings, no `IJeiRuntime`, no `ClientLevel`, no `ItemStack` and no plugin objects are retained, so the snapshot cannot keep a connection alive or change what JEI does.
 
-The comparison is diagnostic and fails open. Fields that are absent on either side are skipped rather than reported as differences, an unreachable server address prints `unknown` instead of throwing, and the snapshot is only stored while `profiling` is enabled, so a run with profiling off simply prints `unavailable (first connection profiled in this process)`.
+The comparison is diagnostic and fails open. Fields that are absent on either side are skipped rather than reported as differences, an unreachable server address prints `unknown (no server address available)` instead of throwing, and the snapshot is only stored while `profiling` is enabled, so a run with profiling off simply prints `unavailable (first connection profiled in this process)`.
 
 `ListElementInfoMixin` adds the by-type tooltip rows to the search-index detail and the tooltip call counts to the same structural comparison. It keeps one `long[2]` per distinct ingredient-type UID, which is a handful of entries, and adds two `nanoTime()` calls per ingredient inside a stage that already costs about 107 microseconds per ingredient, so it is not a meaningful share of the region it measures.

@@ -299,6 +299,98 @@ The 16,442 lower final count is consistent with post-list runtime removals, but 
 
 Use the next ATM10A profile to determine whether the observed `68,186 → 51,744` change is matched by runtime removal requests and whether any same-time raw/typed/list discrepancy remains. **Resolved by runs B and C:** both recorded 68,186 raw/typed with 68,186 filter base-list entries before the remainder of runtime callbacks, 51,744 raw/typed after `onRuntimeAvailable`, a −16,442 net raw delta, and 17,729 removals in 34 calls plus one addition in one call. Raw and typed counts matched at both snapshots, and `IngredientFilter` base-list entries matched the manager exactly at GUI-list build, so no raw/typed/list discrepancy remains at those two snapshots. Still open: per-plugin attribution of the removals, and whether the 1,287-request surplus corresponds to repeated or overlapping UIDs.
 
+## Three generations in one process: cold join, reconnect, and local world
+
+`~/jetoptimizer-runs/atm10a-reconnect-20261005-230658.log` is the run the generation tracking was
+built for. One client process, three joins, so the first row is a cold first connection and the other
+two are same-process joins. This is the first recorded evidence about reconnects, so it is reported
+separately from the eight cold-launch rows and is not averaged with them.
+
+| | Generation 1 | Generation 2 | Generation 3 |
+|---|---:|---:|---:|
+| Join | cold first join | in-game reconnect | in-game join |
+| Target | `play.gamitronservers.com` | `play.gamitronservers.com` | integrated (local) world |
+| Total JEI start | 29.371 s | 26.196 s | 37.492 s |
+| Recipe and category registration | 12.650 s | 10.515 s | 11.915 s |
+| `addRecipes` (nested) | 6.944 s | 5.999 s | 6.597 s |
+| `setRecipe` calls | 4.255 s / 211,643 | 3.307 s / 211,907 | 3.688 s / 213,122 |
+| JEI GUI runtime construction | 11.057 s | 10.149 s | 11.387 s |
+| Ingredient search index construction | 7.662 s | 6.837 s | 7.685 s |
+| `Sending Runtime` (from JEI's own log) | 2.750 s | 2.875 s | 10.430 s |
+| Other (unattributed) | 2.720 s | 2.850 s | 10.396 s |
+| Ingredients at GUI list build | 68,186 | 70,223 | 70,221 |
+| Ingredients after runtime callbacks | 51,744 | 51,746 | 51,744 |
+| Structural fields differing from previous | n/a | 20 of 40 | 21 of 40 |
+
+Generation 1 vs 2 is the useful comparison: same process, same mod set, same target, 79 s apart.
+
+**The reuse hypothesis is now disproved rather than merely unsupported.** Generation 2 kept every
+mod-side field identical: 163 plugin UIDs with the same set hash (`-886537338`), 524 recipe
+categories, 75,632 client recipes, 2,521 `addRecipes` batches, 7 baked-index builds, and identical
+call counts for every non-`item_stack` tooltip type. A fingerprint built from those fields would have
+matched. Yet 20 of 40 fields changed, because the *server* delivered different content: recipes
+211,632 → 211,896, ingredients 68,186 → 70,223, runtime removal requests 17,729 → 19,764, tooltip
+candidate strings 524,003 → 540,483. Every field that moved is server payload; every field that held
+still is client/mod-side. A cache keyed on the stable half would have served stale results on the
+first reconnect.
+
+**The 3.175 s reconnect gain is JIT warmup, not avoided work.** Generation 2 did *more* work, about
+3% more recipes and ingredients, and still finished 10.8% faster, so per-unit cost fell roughly 13%.
+The drop is spread across every region rather than concentrated: `setRecipe` −22.3%, `addRecipes`
+−13.6%, search index −10.8%, GUI runtime −8.2%, ingredient registration −6.0%. The hottest loops fall
+most, which is the JIT signature. No region collapses, so nothing is being skipped on a reconnect, and
+there is no region whose work a cache could be removing today.
+
+**The supplier and recipe-map regions stay exactly 1:1 across all three generations.** `setRecipe`
+calls exceed submitted recipes by exactly 11 every time (211,643/211,632, 211,907/211,896,
+213,122/213,111), so the `getFocusLinks` fallback contributes a constant 11 calls, as the source
+predicted. `RecipeMap.addRecipe` calls equal recipes minus exactly 351 every time
+(211,281/211,632, 211,545/211,896, 212,760/213,111), the 351 recipes under hidden or unknown
+categories. Neither region contains a repeat to memoise.
+
+**The tooltip cost is diffuse across plain items, not concentrated in a mod or an exotic type.**
+Per-type rows for generation 1:
+
+```text
+item_stack: 6.753 s / 67412 calls   (~100 us per item)
+fluid_stack: 0.003 s / 430
+mekanism.api.chemical.ChemicalStack: 0.002 s / 112
+cy.jdkdigital.productivebees...BeeIngredient: 0.001 s / 221
+com.ultramega.refinedtypes.type.TypeStack: 0.000 s / 3
+it.zerono.mods.extremereactors.api.coolant.Coolant: 0.000 s / 1
+```
+
+Generation 2 repeats it: `item_stack` 5.768 s / 69,449 calls, everything else below 0.003 s combined.
+`item_stack` is 98.8-99.5% of the stage in both generations, so there is no outlier ingredient type
+to exclude and no mod-specific pathology to report. This is ordinary `appendHoverText` cost.
+
+**The post-index removal waste is structural and reproduces 3 out of 3.** In every generation the
+search index is built over the full base list first, then the large removal batch arrives about 3 s
+later:
+
+| | Index built over | Large removal batch | Gap |
+|---|---:|---:|---:|
+| Generation 1 | 68,186 at 23:02:05.929 | 14,239 at 23:02:08.983 | 3.05 s |
+| Generation 2 | 70,223 at 23:03:22.055 | 16,274 at 23:03:25.068 | 3.01 s |
+| Generation 3 | 70,221 at 23:04:54.515 | 16,274 at 23:04:57.839 | 3.32 s |
+
+A smaller set of plugin removals also happens *before* the index in all three, during `registerRecipes`.
+So roughly a quarter of the tooltip work is spent on ingredients that are gone before the player opens
+JEI, and the ordering is not incidental. Avoiding it means building the index after the runtime is
+known, which changes when mod tooltip code runs relative to the player joining; that is a behaviour
+change, not a safe optimisation.
+
+**`Sending Runtime` is the largest unattributed region.** It is 2.750-2.875 s on the remote joins and
+10.430 s for the local world, and because it has no stage hook it lands in `Other (unattributed)`
+(2.720 / 2.850 / 10.396 s). Generation 3's apparent 37 s regression is almost entirely this one phase,
+not JEI registration. It is worth its own hook: 9% of a remote join and 28% of a local join, currently
+invisible inside a residual bucket.
+
+**Conclusion for this iteration.** With a real reconnect measured, none of the three candidate
+regions yields a safe optimisation: the tooltip phase is connection-bound and diffuse, the supplier
+and recipe-map phases have no redundancy in any generation, and the only provable waste requires
+reordering JEI's startup. The measurement is the deliverable; a code change here would be a guess.
+
 ## Profiler smoke test and next measurement
 
 The updated hooks were smoke-tested in a small vanilla integrated `runClient` with JEI 19.57.0.449. All JEI startup, phase, recipe-ingestion, and search-index hooks applied without Mixin errors. One run reported:
@@ -315,11 +407,11 @@ These values validate hook coverage/output only; they are not representative ATM
 
 The expanded profiler has now been run eight times on ATM10A. JEI accounts for 76-78% of the login delay, so that total is the optimisation target. Profiler overhead sits below the noise floor, and the disconnect/rejoin path is still unmeasured.
 
-**Method of the eight recorded launches.** Each launch was a separate Minecraft process that performed one manually initiated join to the same saved server, and the client remained in that single world until the run ended. No client process survived a disconnect and rejoined, so all eight rows are cold-process/first-connection measurements and none of them is a reconnect benchmark. A disconnect/rejoin was performed interactively during development, but no profile block from that sequence was kept, so it cannot serve as a data point. JETOptimizer did not log a connection generation at the time, which is exactly the gap the generation tracking now closes.
+**Method of the eight recorded launches.** Each launch was a separate Minecraft process that performed one manually initiated join to the same saved server, and the client remained in that single world until the run ended. No client process survived a disconnect and rejoined, so all eight rows are cold-process/first-connection measurements and none of them is a reconnect benchmark. A disconnect/rejoin was performed interactively during development, but no profile block from that sequence was kept, so it cannot serve as a data point. JETOptimizer did not log a connection generation at the time, which is exactly the gap the generation tracking now closes; the reconnect case is covered separately by the three-generation run above and is deliberately not folded into the eight-row average.
 
 1. **Profiler overhead is a solved-enough question.** Four instrumented and four uninstrumented launches differ by 0.135 s against a 1.1-1.7 s spread. Do not spend more launches on this; if a bound is ever needed, alternate both arms over six launches each and discard the first after any config change.
-2. **Reconnect and invalidation.** Every recorded launch covered one initial join in a fresh process only; the control runs were terminated after the profile line. Disconnect to the main menu and rejoin the same unchanged server; JETOptimizer clears its pending session on `ClientPlayerNetworkEvent.LoggingOut`, so the reconnect logs a second full `JEI initialization profile` block. Confirm that by checking the new `Connection generation:` and `Join kind:` lines instead of assuming it from the log file, then repeat for server restart, `/reload`, and server switch. A client shutdown is not a reconnect: run C's tail shows `Stopping JEI` → `Sending Runtime Unavailable` → `Stopping!`, which is a clean quit after disconnecting, not a second join. The second and later connections also print a `Structural comparison vs previous connection` block, which is the only reliable way to tell whether a reconnect actually reused anything.
-3. **Unexplained regions.** `Other (unattributed)` is 2.656-2.705 s across instrumented runs and `Ingredient registration` swung 4.488 s → 3.377 s → 3.377 s-class values with no per-source detail. Both need narrower hooks before any optimization argument can be made. The tooltip region is now covered by per-ingredient-type rows; `Ingredient registration` is still unattributed by source.
+2. **Reconnect and invalidation: resolved for the same-server case.** One process now covers a cold join, an in-game reconnect to the same remote server, and a join to a local world. See "Three generations in one process" above. The generation lines behave as intended, and the `Structural comparison vs previous connection` block is what makes the result trustworthy: it showed 20 of 40 fields differing on a same-server reconnect, which is the evidence that rules out a reuse layer keyed on mod-side state. Two caveats are recorded in code. First, the profiler originally labelled any generation above 1 as "in-game reconnect", which was wrong for a local world that has no address; `currentServerAddress()` now names an integrated server explicitly and the join kind is derived from the generation *and* the observed target. Second, JEI runs a full startup for the local world too, so a local join is not a valid data point for remote-server reconnects.
+3. **Unexplained regions.** `Other (unattributed)` is 2.656-2.850 s on remote joins but 10.396 s for a local world, and it is dominated by JEI's `Sending Runtime` phase (2.750 / 2.875 / 10.430 s), which has no stage hook. `Ingredient registration` also swung 4.488 s → 3.377 s → 2.638 s → 3.737 s across runs with no per-source detail. **Next action:** add a hook around `Sending Runtime` and per-source attribution for ingredient registration. Both are measurement gaps, not proven costs.
 4. **Do not reuse run A.** Its 27.447 s is unexplained and is not a valid baseline; use the mean of a fresh arm instead.
 5. **Do not treat the dominant region as reuse-able work.** `docs/JEI_SOURCE_ANALYSIS.md` shows the 7.265 s tooltip stage is bound to `ClientLevel` and the local `Player` inside `SafeIngredientUtil.getPlainTooltipForSearch`, and that the supplier and recipe-map regions have no duplicate computation to remove. Any proposal to cache those needs new evidence, not the existing timings.
 

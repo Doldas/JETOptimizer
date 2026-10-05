@@ -198,6 +198,29 @@ The related memory point is that `IngredientFilter.onIngredientsRemoved` is docu
 removed ingredients for the lifetime of the runtime. Pruning them would save memory, not startup
 time, and would have to preserve `ElementSearch.findElement` behaviour for visibility updates.
 
+## What the measured generations added to this
+
+The three-generation run in
+`~/jetoptimizer-runs/atm10a-reconnect-20261005-230658.log` (cold remote join, in-game reconnect to
+the same remote server, join to a local world) tested the source conclusions against a real reconnect
+and confirmed all of them. Details are in `docs/JEI_PERFORMANCE_ANALYSIS.md`.
+
+The `getFocusLinks` fallback predicted at most 11 calls; measured, it contributes exactly 11 in every
+generation. `RecipeMap.addRecipe` calls equal recipes minus exactly 351 in every generation, the
+recipes under hidden or unknown categories, so there is no repeat to memoise in either region.
+
+The reuse key is the decisive result. Generation 2 held every mod-side field identical to generation 1
+— 163 plugin UIDs with the same order-independent set hash, 524 categories, 75,632 client recipes,
+2,521 `addRecipes` batches, 7 baked-index builds — and still differed in 20 of 40 fields, because the
+server sent 264 more recipes and 2,037 more ingredients. A cache keyed on the stable half would have
+hit while the payload had moved. This is the concrete failure mode that the `ClientLevel` and `Player`
+argument-bound dependency predicted from the source.
+
+The by-type tooltip attribution also closes the "one bad mod" hypothesis: `item_stack` is 98.8-99.5%
+of the tooltip stage in both profiled generations, at roughly 83-100 microseconds per item, with every
+other ingredient type together under 0.01 s. The cost is ordinary `appendHoverText` work spread over
+~67,000 items, not a pathological type that could be excluded.
+
 ## Conclusion
 
 Within a single connection the dominant regions are all first-occurrence work whose inputs are
@@ -209,14 +232,15 @@ connection-bound, and the source shows no safe redundancy to remove:
 * The only provable waste, 24% of ingredients being indexed then removed, happens after the index is
   built and is driven by plugin calls.
 
-Consequently no optimization is implemented. Implementing one would mean guessing about mod tooltip
-determinism or reordering JEI's startup, both of which trade correctness risk for a time win that
-has not been demonstrated. What is needed next is measurement, not a change:
+Consequently no optimization is implemented, and the measured reconnect is what makes that a
+conclusion rather than a shrug: the reuse hypothesis is disproved for the same-server case, and the
+remaining waste would require reordering JEI's startup.
 
-1. Deploy the connection-generation and structural-comparison output and record a real in-game
-   reconnect, to confirm what actually differs between two connections in one process. The eight
-   existing runs are cold launches and cannot answer this.
-2. Read the new `Tooltip search strings by ingredient type` rows to find out whether the 7.265 s is
-   diffuse across many mods or dominated by a few ingredient types. If one type dominates, that is a
-   mod-specific conversation; if it is diffuse, it is inherent cost that no reuse layer removes.
-3. Only then decide whether a reuse layer is worth its invalidation surface.
+What is needed next is still measurement, not a change:
+
+1. Hook `Sending Runtime`, the largest unattributed region at 2.750-10.430 s and the entire cause of
+   the local-world run's apparent 37 s.
+2. Add per-source attribution to `Ingredient registration`, which swung 4.488 s → 2.638 s → 3.737 s
+   with no source detail.
+3. Re-run the same-server reconnect after those hooks land. Both remaining regions are large enough
+   to be worth measuring before any change is contemplated.
