@@ -3,6 +3,8 @@
 **Source baseline:** JEI 19.57.0.449, Minecraft 1.21.1, NeoForge 21.1.x.
 **Current goal:** explain the major JEI startup regions with measurements. No reconnect cache or behavior-changing optimization is implemented.
 
+**Read this first:** the wall-clock numbers below are single launches on a machine whose same-build spread is 1.1-1.7 s. Structural counters are reproducible to the unit; timings are not. Jump to [Seven Prism/ATM10A launches](#seven-prismatm10a-launches-on-the-same-saved-test-server) for the launch table, the instrumented-versus-uninstrumented comparison, and what is still unmeasured.
+
 ## ATM10 Aeronautics baseline supplied for this iteration
 
 | Measurement | Time/count |
@@ -43,6 +45,147 @@ Plugin callback totals:
 **Do not add these numbers together.** Plugin UID totals span callbacks nested in JEI stages. `jei:neoforge_gui` substantially overlaps `JEI GUI runtime construction`; filter, search-index, and ingredient-list times are children of that GUI region. Recipe registration callback timing is also nested in `Recipe/category registration`.
 
 The disjoint top-level numbers supplied for this run account for 27.361 s (11.031 recipe/category + 10.912 GUI runtime + 2.863 ingredient registration + 2.555 unattributed), approximately 99.7% of the 27.447-second total. The remaining 0.086 s is in smaller timed top-level stages omitted from that summary. This is accounting coverage, not causal explanation of the 2.555-second residual; the detailed re-profile is still needed to identify what consumes each parent interval.
+
+## Seven Prism/ATM10A launches on the same saved test server
+
+The current 0.1.0 JAR was installed into the existing Prism ATM10A instance and launched seven times against its saved test server, on Minecraft 1.21.1 / NeoForge 21.1.250 with JEI 19.57.0.449, with no pack, config, or server changes except toggling the two profiling options.
+
+| # | Time | `profiling` | `Starting JEI` | Log |
+|---|---|---|---:|---|
+| A | 20:53 | on (pre-expansion hooks) | 27.447 s | `logs/2026-10-05-5.log.gz` |
+| B | 21:39 | on | 31.413 s | `logs/2026-10-05-6.log.gz` |
+| C | 21:44 | on | 30.347 s | `logs/2026-10-05-7.log.gz` |
+| D1 | 21:59 | **off** | 30.500 s | `logs/latest.log` at the time, copied to `/tmp/opencode/atm10a-control-1-latest.log` |
+| D2 | 22:04 | **off** | 29.500 s | `/tmp/opencode/atm10a-control-2-latest.log` |
+| D3 | 22:06 | **off** | 29.110 s | `/tmp/opencode/atm10a-control-3-latest.log` |
+| E1 | 22:08 | on | 31.244 s | `/tmp/opencode/atm10a-on-1-latest.log` |
+| D4 | 22:10 | **off** | 30.800 s | `/tmp/opencode/atm10a-control-4-latest.log` |
+
+Run A used the earlier, lighter hook set: its log lists fewer observed mixin hooks and prints the older `Ingredient count: 51744` row instead of the manager before/after rows, so it is not comparable hook-for-hook with the rest.
+
+With profiling off, JEI starts normally and prints its own `Starting JEI took ...` line but no `[JETOptimizer]` profile block; that behaviour was confirmed in D1-D4. This gives an instrumented-versus-uninstrumented comparison on one identical jar, which is the only way here to separate instrumentation cost from pack state:
+
+| Arm | n | Mean | Median | Min | Max | Range |
+|---|---:|---:|---:|---:|---:|---:|
+| `profiling = true` (B, C, E1) | 3 | 31.001 s | 31.244 s | 30.347 s | 31.413 s | 1.066 s |
+| `profiling = false` (D1-D4) | 4 | 29.977 s | 30.000 s | 29.110 s | 30.800 s | 1.690 s |
+
+Mean difference **1.024 s**, median difference **1.244 s**, so the expanded hooks appear to cost roughly 1 s, about 3.4% of a ~30-second startup. That is suggestive, not resolved: the uninstrumented range (1.690 s) is wider than the instrumented range (1.066 s), and the worst uninstrumented run (30.800 s) is slower than the best instrumented run (30.347 s), so the arms overlap. Three and four samples cannot separate a ~1 s effect from ~1.7 s of noise.
+
+Warm-up drift is not the explanation. The seven totals are not monotonic: 31.413, 30.347, 30.500, 29.500, 29.110, **31.244**, 30.800. The instrumented run E1 launched immediately after the fastest uninstrumented run D3 and came in 2.134 s *slower* than it, which is the opposite of what continued cache warm-up would produce. So some part of the ~1 s gap is real instrumentation cost, and its exact size needs more samples per arm.
+
+Run A's 27.447 s is 2.9 s below even the best instrumented run and 1.7 s below the best uninstrumented run. Instrumentation cost of ~1 s does not explain that gap, so run A reflects some other machine or session state and must not be used as the comparison baseline for future work.
+
+### Same-build variance of the expanded profiler (B vs C)
+
+Counters were identical across B, C and E1; only timings moved.
+
+| Counter | B | C | E1 |
+|---|---:|---:|---:|
+| Client recipes | 75,632 | 75,632 | 75,632 |
+| Recipe categories | 524 | 524 | 524 |
+| Plugin UIDs observed | 163 | 163 | 163 |
+| Manager at GUI list build | 68,186 | 68,186 | 68,186 |
+| Manager after `onRuntimeAvailable` | 51,744 | 51,744 | 51,744 |
+| Net raw delta | −16,442 | −16,442 | −16,442 |
+| Runtime removals / calls | 17,729 / 34 | 17,729 / 34 | 17,729 / 34 |
+| Runtime additions / calls | 1 / 1 | 1 / 1 | 1 / 1 |
+| `addRecipes` batches / recipes | 2,521 / 211,632 | 2,521 / 211,632 | 2,521 / 211,632 |
+| Supplier-helper calls | 211,643 | 211,643 | 211,643 |
+| `RecipeMap.addRecipe` calls per role | 211,281 | 211,281 | 211,281 |
+| Baked index builds / key entries | 7 / 604,658 | 7 / 604,661 | 7 / 604,680 |
+| Tooltip candidate strings | 523,998 | 524,001 | 524,020 |
+
+Every structural counter is reproducible to the unit. The one exception is tooltip candidate strings, which drifted 523,998 → 524,001 → 524,020 (+22 over three runs) and moved the baked key count with it, while the ingredient count stayed exactly 68,186. That points at a small number of dynamic tooltip components rather than a changed ingredient set, so sub-1% differences in tooltip candidate counts are also noise.
+
+Timings moved in both directions, which is what uncorrelated machine noise looks like:
+
+| Stage | Run B | Run C | Delta |
+|---|---:|---:|---:|
+| `Recipe and category registration` | 12.846 s | 12.435 s | −0.411 s |
+| ├ `registerRecipes` callbacks outside `addRecipes` | 4.733 s | 5.173 s | +0.440 s |
+| └ `RecipeManagerInternal.addRecipes` | 7.240 s | 6.495 s | −0.745 s |
+| `JEI GUI runtime construction` | 11.296 s | 11.704 s | +0.408 s |
+| `Ingredient filter construction` | 8.160 s | 8.462 s | +0.302 s |
+| `Ingredient search index construction` | 7.955 s | 8.231 s | +0.276 s |
+| `Ingredient registration` | 4.488 s | 3.377 s | −1.111 s |
+| `Ingredient sorting` | 0.053 s | 0.069 s | +0.016 s |
+| `Ingredient list construction` | 0.327 s | 0.330 s | +0.003 s |
+| `Other (unattributed)` | 2.656 s | 2.705 s | +0.049 s |
+| `Total JEI start` | **31.413 s** | **30.347 s** | **−1.066 s** |
+
+Nested children of the same stage also moved independently: tooltip getter 7.053 s → 7.340 s while `RecipeMap` `INPUT` fell 1.386 s → 1.204 s and `RENDER_ONLY` fell 1.225 s → 1.089 s. Plugin totals moved the same way: `jei:neoforge_gui` 11.300 s → 11.708 s and `jei:minecraft` 9.293 s → 8.035 s, even though both plugins' per-phase work was unchanged.
+
+Practical consequences:
+
+* Instrumented runs span 1.066 s and uninstrumented runs span 1.690 s on this machine. A single run cannot resolve anything smaller, so any before/after claim needs repeated same-build samples in both arms.
+* The ~1 s instrumentation cost is small next to the ~1.2 s recipe-registration and ~1.1 s ingredient-registration swings between identical runs, so the profiler's own cost cannot distort the ranking of the large stages.
+* `Ingredient registration` alone swung 1.111 s between two identical runs while its stage has no per-source detail. That stage is currently the least explained large region after `Other (unattributed)`.
+* Hook call volume is deterministic, so instrumentation cost is stable even though timings are not. Per run the profiler makes 211,643 supplier-helper calls, 845,124 role-map insertions, and about 477,000 prefix string-getter calls.
+
+## Fresh Prism/ATM10A run with the expanded profiler
+
+The rest of this section describes run B, which completed at 21:39 with 31.413 s `Starting JEI`. Run C repeated it at 30.347 s and E1 at 31.244 s, as tabulated above.
+
+This run reported 75,632 synchronized client recipes, 524 categories and 163 plugin UIDs. The expanded recipe breakdown accounted for the 12.846-second parent:
+
+| Disjoint child region inside `createRecipeManager` | Time |
+|---|---:|
+| `Registering categories` callbacks | 0.347 s |
+| `Registering vanilla category extensions` callbacks | 0.338 s |
+| `Registering recipe catalysts` callbacks | 0.013 s |
+| `Registering advanced plugins` callbacks | 0.119 s |
+| `registerRecipes` callback work outside JEI `addRecipes` | 4.733 s |
+| `RecipeManagerInternal.addRecipes` calls | 7.240 s |
+| `RecipeManagerInternal` construction | 0.021 s |
+| Advanced recipe-manager plugin wiring | <0.001 s |
+| Role-map compaction | 0.028 s |
+| Other recipe-manager method glue | 0.007 s |
+| **Parent total** | **12.846 s** |
+
+The 7.240-second `addRecipes` region further split into:
+
+| Child region, nested inside `addRecipes` | Time/calls |
+|---|---:|
+| `IngredientSupplierHelper.getIngredientSupplier` / category `setRecipe` slot extraction | 4.245 s / 211,643 calls |
+| `RecipeMap.addRecipe` `INPUT` | 1.386 s / 211,281 calls |
+| `RecipeMap.addRecipe` `OUTPUT` | 0.233 s / 211,281 calls |
+| `RecipeMap.addRecipe` `CATALYST` | 0.017 s / 211,281 calls |
+| `RecipeMap.addRecipe` `RENDER_ONLY` | 1.225 s / 211,281 calls |
+| Other add-batch work | 0.134 s |
+
+JEI plugins submitted 211,632 recipes in 2,521 `addRecipes` batches. Eleven more supplier-helper calls than submitted list entries were observed inside the callback phase; helper calls are counted at their own source method boundary and are not assumed to be one-to-one with batch entries. The 211,281 per-role writes represent recipes that reached role-map insertion; recipe batches can include hidden, unhandled, or otherwise rejected entries. Slow `registerRecipes` callback totals were led by `jei:minecraft` (4.612 s), `farmersdelight:jei_plugin` (1.314 s), `create:jei_plugin` (0.969 s), and `silentgear:plugin/main` (0.924 s). These per-UID values are children of the 4.733-second callback-work row and must not be added again.
+
+The 7.955-second search-index region was accounted for as follows:
+
+| Non-overlapping search child | Time | Candidate strings / baked keys |
+|---|---:|---:|
+| `mod_names` string getter | 0.322 s | 105,526 candidates / 364 keys |
+| `tags` string getter | 0.142 s | 817,290 candidates / 5,852 keys |
+| `tooltips` string getter | **7.053 s** | 523,998 candidates / 523,998 keys |
+| `unprefixed` name getter | 0.003 s | 74,445 candidates / 74,444 keys |
+| `colors`, `creative_tabs`, `identifiers` | ~0 s | Disabled in this config; no string getters called, but empty prefix builders still ran. |
+| Baked substring gram-index building | 0.224 s | 7 builder calls, 604,658 total key entries |
+| Other search-index work | 0.211 s | UID map population, trim/put and prefix wiring residual |
+| **Search-index parent** | **7.955 s** | |
+
+Thus tooltip string generation alone accounts for about **88.7%** of the search-index stage and 7.053 s of the previous 7.602-second search estimate. In source, `ListElementInfo.getTooltipStrings` calls the ingredient renderer's safe plain-tooltip path, strips formatting, lowercases/translates text, splits tooltip lines on whitespace, builds a set, and removes strings already represented by names/IDs/resource paths. The current profiler measures that whole per-ingredient getter, not a separate renderer-versus-normalization split. The baked gram-index work is only 0.224 s in this run, so index data-structure construction is not the principal part of this search interval. Tag and mod-name `LimitedStringStorageBuilder`s reduce candidate strings to substantially fewer unique keys.
+
+Sorting measured 0.053 s, outside `createElementSearch`; the filter constructor was 8.160 s and the GUI runtime was 11.296 s. Do not sum those parents with the 7.955-second search child.
+
+The ingredient-count comparison was directly reproduced:
+
+| Snapshot | Raw manager | Typed manager | Filter base-list entries |
+|---|---:|---:|---:|
+| GUI base-list construction, before the remainder of runtime callbacks | 68,186 | 68,186 | 68,186 |
+| After JEI `onRuntimeAvailable` callbacks | 51,744 | 51,744 | — |
+| Net raw manager change during JEI startup | **−16,442** | **−16,442** | — |
+
+The profiler observed **17,729 requested removals in 34 calls** and **one requested addition in one call** between the beginning and end of JEI startup. Run C reproduced all five count rows exactly. This confirms that the two originally quoted counts are not simultaneous: the initial filter list is built at 68,186 entries, and runtime callbacks mutate the ingredient manager before JETOptimizer reads the final 51,744 entries. Requested mutation sizes are not guaranteed successful unique changes—JEI removes by ingredient UID—so the 1,287-request difference from the observed net delta is not evidence of missing rows. The current hooks count mutation requests globally, not by plugin UID, so attribution of those requests to KubeJS versus other plugins remains open.
+
+JEI's own log line `Ingredients are being added at runtime: 1 net.minecraft.world.item.ItemStack` appears in run C at 21:44:44, independently corroborating the single requested addition. It does not corroborate the removals, which JEI does not log in bulk.
+
+The same run measured `kubejs:jei` at 2.505 s during `Sending Runtime`; this is distinct from recipe registration and the GUI/search phases. No KubeJS optimization was attempted. A caught Compact Machines `registerRecipes` NPE was also logged by JEI's normal plugin error handler and startup continued.
 
 ## Recipe/category registration: exact work and new breakdown
 
@@ -126,7 +269,7 @@ The supplied values are different lifecycle snapshots:
 
 The 16,442 lower final count is consistent with post-list runtime removals, but the supplied trace has no initial manager snapshot or runtime mutation totals, so it does not prove which plugin removed what. The new profile records manager raw/typed sizes at base-list construction, filter-list entry count, manager raw/typed sizes after runtime callbacks, and requested runtime additions/removals. At the same snapshot, `getAllIngredients` and `getAllTypedIngredients` are backed by the same `RegisteredIngredientIndex`; those counts should match. `createBaseList` can be smaller if `ListElementInfo.createFromElement` catches broken ingredient metadata, so the base-list count is recorded separately from manager size.
 
-Use the next ATM10A profile to determine whether the observed `68,186 → 51,744` change is matched by runtime removal requests and whether any same-time raw/typed/list discrepancy remains. Do not use the post-callback count as an initial filter or cache fingerprint without clarifying that delta.
+Use the next ATM10A profile to determine whether the observed `68,186 → 51,744` change is matched by runtime removal requests and whether any same-time raw/typed/list discrepancy remains. **Resolved by runs B and C:** both recorded 68,186 raw/typed with 68,186 filter base-list entries before the remainder of runtime callbacks, 51,744 raw/typed after `onRuntimeAvailable`, a −16,442 net raw delta, and 17,729 removals in 34 calls plus one addition in one call. Raw and typed counts matched at both snapshots, and `IngredientFilter` base-list entries matched the manager exactly at GUI-list build, so no raw/typed/list discrepancy remains at those two snapshots. Still open: per-plugin attribution of the removals, and whether the 1,287-request surplus corresponds to repeated or overlapping UIDs.
 
 ## Profiler smoke test and next measurement
 
@@ -140,7 +283,16 @@ The updated hooks were smoke-tested in a small vanilla integrated `runClient` wi
 
 These values validate hook coverage/output only; they are not representative ATM performance benchmarks. The local world has very few recipes and ingredients. The source-string and per-role counters were tested at this small scale; the large-pack run is needed to assess profiler overhead.
 
-Re-run ATM10A with `profiling=true` and `pluginProfiling=true`, then compare the new disjoint recipe-category breakdown and search source/bake/residual breakdown against the supplied 27.447-second baseline. The hierarchy is:
+## Next measurement
+
+The expanded profiler has now been run seven times on ATM10A. Instrumentation cost is bounded at roughly 1 s but not cleanly separated from noise, and the disconnect/rejoin path is still unmeasured.
+
+1. **More samples per arm.** The current estimate of profiler overhead rests on 3 instrumented and 4 uninstrumented launches whose ranges overlap (1.066 s and 1.690 s). Alternate the two arms over at least six launches each, discarding the first launch after any config change, to turn the "about 1 s, ~3.4%" figure into a bound.
+2. **Reconnect and invalidation.** Every launch so far covered one initial join only; the control runs were terminated after the profile line. Disconnect to the main menu and rejoin the same unchanged server; JETOptimizer clears its pending session on `ClientPlayerNetworkEvent.LoggingOut`, so the reconnect is expected to log a second full `JEI initialization profile` block. Confirm that, then repeat for server restart, `/reload`, and server switch. A client shutdown is not a reconnect: run C's tail shows `Stopping JEI` → `Sending Runtime Unavailable` → `Stopping!`, which is a clean quit after disconnecting, not a second join.
+3. **Unexplained regions.** `Other (unattributed)` is 2.656-2.705 s across instrumented runs and `Ingredient registration` swung 4.488 s → 3.377 s → 3.377 s-class values with no per-source detail. Both need narrower hooks before any optimization argument can be made.
+4. **Do not reuse run A.** Its 27.447 s is unexplained and is not a valid baseline; use the mean of a fresh arm instead.
+
+The disjoint stage hierarchy to compare against is:
 
 ```text
 Total JEI start
@@ -162,4 +314,4 @@ Total JEI start
          └─ UID maps, key puts and other search glue
 ```
 
-Plugin UID totals and these sub-stages overlap their enclosing callback/parent stage and should remain in the diagnostic view, not be added into the exclusive 27.447-second total. This work changes instrumentation only; it does not cache, skip JEI work, or change displayed recipes.
+Plugin UID totals and these sub-stages overlap their enclosing callback/parent stage and should remain in the diagnostic view, not be added into the total. All wall-clock numbers in this document come from single launches on a machine whose same-build spread is 1.1-1.7 s; quote them as one sample of a noisy interval, not as measurements. This work changes instrumentation only; it does not cache, skip JEI work, or change displayed recipes.
