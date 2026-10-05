@@ -12,6 +12,7 @@ public final class JETOptimizerConfig {
     public static final ModConfigSpec.BooleanValue DEBUG_CACHE;
     public static final ModConfigSpec.BooleanValue DEBUG_CACHE_INVALIDATION;
     public static final ModConfigSpec.BooleanValue EXPERIMENTAL_OPTIMIZATIONS;
+    public static final ModConfigSpec.BooleanValue FAST_SEARCH_TEXT;
     public static final ModConfigSpec SPEC;
 
     static {
@@ -23,6 +24,15 @@ public final class JETOptimizerConfig {
         DEBUG_CACHE = BUILDER.define("debugCache", false);
         DEBUG_CACHE_INVALIDATION = BUILDER.define("debugCacheInvalidation", false);
         EXPERIMENTAL_OPTIMIZATIONS = BUILDER.define("experimentalOptimizations", false);
+        BUILDER.push("optimizations");
+        FAST_SEARCH_TEXT = BUILDER
+            .comment(
+                "Replaces the two per-tooltip-line regular expressions JEI uses to build search words",
+                "(chat-format stripping and whitespace splitting) with equivalent non-regex scans.",
+                "Pure text work only: no cached state is kept and no connection-bound object is touched."
+            )
+            .define("fastSearchText", true);
+        BUILDER.pop();
         BUILDER.pop();
         SPEC = BUILDER.build();
     }

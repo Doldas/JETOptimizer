@@ -19,7 +19,8 @@
     "PluginLoaderMixin",
     "RecipeManagerInternalMixin",
     "RecipeMapMixin",
-    "RecipeRegistrationMixin"
+    "RecipeRegistrationMixin",
+    "StringUtilMixin"
   ],
   "injectors": {
     "defaultRequire": 0

@@ -5,6 +5,7 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RecipesUpdatedEvent;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
@@ -41,6 +42,7 @@ public final class JETOptimizerProfiler {
     private static final String INTEGRATED_TARGET = "integrated server (local world)";
 
     private static final String STAGE_SEARCH_INDEX = "Ingredient search index construction";
+    private static final String STAGE_GUI_RUNTIME = "JEI GUI runtime construction";
     private static final String STAGE_INGREDIENT_REGISTRATION = "Ingredient registration";
 
     private static final String PHASE_REGISTERING_RECIPES = "Registering recipes";
@@ -80,6 +82,9 @@ public final class JETOptimizerProfiler {
     );
 
     private static volatile GenerationSnapshot previousGenerationSnapshot;
+
+    /** Optimization report rows, one per profiled connection, kept for the life of the process. */
+    private static final List<OptimizationRecord> OPTIMIZATION_RECORDS = Collections.synchronizedList(new ArrayList<>());
 
     private static volatile long recipePacketStartedAt;
     private static volatile PendingRecipeSync pendingRecipeSync;
@@ -167,6 +172,7 @@ public final class JETOptimizerProfiler {
         ACTIVE_SESSION.remove();
         if (session.profiling) {
             logProfile(session, totalNanos);
+            logOptimizationReport(session, totalNanos);
             previousGenerationSnapshot = GenerationSnapshot.from(session);
         }
         if (session.pluginProfiling) {
@@ -447,6 +453,104 @@ public final class JETOptimizerProfiler {
         session.tooltipTypeUid = null;
     }
 
+    /**
+     * Times JEI's pure search-text pipeline. The tooltip has already been rendered when this runs,
+     * so this window contains only {@code getString}, chat-format removal, lowercasing, whitespace
+     * splitting and set insertion. It is the ceiling for any optimization that does not touch
+     * mod-supplied tooltip rendering.
+     *
+     * <p>Gated on the session rather than the search stage because chat-format stripping is also
+     * reached from display-name handling during list construction, which happens earlier.
+     */
+    public static void beginSearchTextPipeline() {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null || session.searchTextPipelineStartedAt != 0L) {
+            return;
+        }
+        session.searchTextPipelineStartedAt = System.nanoTime();
+        session.searchTextPipelineCalls++;
+    }
+
+    public static void finishSearchTextPipeline() {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null || session.searchTextPipelineStartedAt == 0L) {
+            return;
+        }
+        session.searchTextPipelineNanos += System.nanoTime() - session.searchTextPipelineStartedAt;
+        session.searchTextPipelineStartedAt = 0L;
+    }
+
+    public static void beginFastTextStrip() {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null) {
+            return;
+        }
+        session.fastStripCalls++;
+        if (session.searchTextPipelineStartedAt != 0L && session.fastStripStartedAt == 0L) {
+            session.fastStripStartedAt = System.nanoTime();
+        }
+    }
+
+    public static void finishFastTextStrip(boolean applied) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null) {
+            return;
+        }
+        if (session.fastStripStartedAt != 0L) {
+            session.fastStripNanos += System.nanoTime() - session.fastStripStartedAt;
+            session.fastStripStartedAt = 0L;
+        }
+        if (applied) {
+            session.fastStripApplied++;
+        }
+    }
+
+    public static void beginFastTextSplit() {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null) {
+            return;
+        }
+        session.fastSplitCalls++;
+        if (session.searchTextPipelineStartedAt != 0L && session.fastSplitStartedAt == 0L) {
+            session.fastSplitStartedAt = System.nanoTime();
+        }
+    }
+
+    public static void finishFastTextSplit(boolean applied) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null) {
+            return;
+        }
+        if (session.fastSplitStartedAt != 0L) {
+            session.fastSplitNanos += System.nanoTime() - session.fastSplitStartedAt;
+            session.fastSplitStartedAt = 0L;
+        }
+        if (applied) {
+            session.fastSplitApplied++;
+        }
+    }
+
+    /** Records that a fast path handed control back to JEI's original implementation. */
+    public static void recordOptimizationFallback(String optimization) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null) {
+            return;
+        }
+        session.optimizationFallbacks.merge(optimization, 1, Integer::sum);
+    }
+
+    /**
+     * Records one block of {@code JeiGuiStarter.start} between two consecutive gates. Gates are
+     * keyed by label so a block is never double counted if a gate target is missing on some version.
+     */
+    public static void recordGuiRuntimeGate(String label, long nanos) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null || !session.profiling || nanos < 0L) {
+            return;
+        }
+        session.guiRuntimeGates.merge(label, nanos, Long::sum);
+    }
+
     private static Session searchSession() {
         Session session = ACTIVE_SESSION.get();
         return session != null && session.searchStageActive ? session : null;
@@ -499,6 +603,7 @@ public final class JETOptimizerProfiler {
         appendIngredientRegistrationBreakdown(lines, session);
         appendSendingRuntimeBreakdown(lines, session);
         appendSearchIndexBreakdown(lines, session);
+        appendGuiRuntimeGates(lines, session);
         JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
     }
 
@@ -747,6 +852,53 @@ public final class JETOptimizerProfiler {
         lines.append("  Baked index build calls/key entries: ").append(bakeCalls).append('/').append(keyEntries).append('\n');
         appendTiming(lines, "  Other search-index work", Math.max(0L, searchStage - sourceNanos - bakeNanos));
         appendTooltipStringsByType(lines, session);
+        appendSearchTextOptimization(lines, session);
+    }
+
+    /**
+     * The gated blocks inside {@code JeiGuiStarter.start}. This is the only breakdown of the GUI
+     * runtime stage beyond the two blocks JEI times itself, so it is what attributes the part of the
+     * stage that used to be unattributed.
+     */
+    private static void appendGuiRuntimeGates(StringBuilder lines, Session session) {
+        if (session.guiRuntimeGates.isEmpty()) {
+            return;
+        }
+        long stage = session.stageNanos.getOrDefault(STAGE_GUI_RUNTIME, 0L);
+        long gates = sumValues(session.guiRuntimeGates);
+        lines.append("GUI runtime construction, gated blocks (sum ").append(formatSeconds(gates)).append(
+            " of ").append(formatSeconds(stage)).append(", ").append(session.guiRuntimeGates.size())
+            .append(" gates):\n");
+        session.guiRuntimeGates.entrySet().stream()
+            .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+            .forEach(entry -> lines.append("    ").append(entry.getKey()).append(": ")
+                .append(formatSeconds(entry.getValue())).append('\n'));
+        appendTiming(lines, "  GUI runtime construction not covered by a gate",
+            Math.max(0L, stage - gates));
+    }
+
+    /**
+     * The fast-path counters only start once the pipeline window is open, so subtracting them from
+     * the pipeline total isolates the regex work that was replaced rather than the whole region.
+     */
+    private static void appendSearchTextOptimization(StringBuilder lines, Session session) {
+        lines.append("  Search-text pipeline (pure work inside getStrings): ")
+            .append(formatSeconds(session.searchTextPipelineNanos))
+            .append(" over ").append(session.searchTextPipelineCalls).append(" calls\n");
+        lines.append("    fast chat-format stripping: ")
+            .append(formatSeconds(session.fastStripNanos))
+            .append(" over ").append(session.fastStripCalls).append(" calls (")
+            .append(session.fastStripApplied).append(" applied)\n");
+        lines.append("    fast whitespace splitting: ")
+            .append(formatSeconds(session.fastSplitNanos))
+            .append(" over ").append(session.fastSplitCalls).append(" calls (")
+            .append(session.fastSplitApplied).append(" applied)\n");
+        appendTiming(lines, "    replaced regex work", Math.max(0L,
+            session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos));
+        if (!session.optimizationFallbacks.isEmpty()) {
+            lines.append("    fallbacks to JEI implementation: ")
+                .append(session.optimizationFallbacks).append('\n');
+        }
     }
 
     private static void appendTooltipStringsByType(StringBuilder lines, Session session) {
@@ -760,6 +912,80 @@ public final class JETOptimizerProfiler {
             .forEach(entry -> lines.append("    ").append(entry.getKey()).append(": ")
                 .append(formatSeconds(entry.getValue()[0]))
                 .append('/').append(entry.getValue()[1]).append('\n'));
+    }
+
+    /**
+     * Per-generation summary of what the shipped optimizations actually did, kept across
+     * connections so a cold join and a later reconnect can be read side by side.
+     *
+     * <p>The replaced-regex figure is measured, not projected: it is the pipeline window minus the
+     * time spent inside the two replacements, so it can only ever account for work the fast paths
+     * took over.
+     */
+    private static void logOptimizationReport(Session session, long totalNanos) {
+        long replacedNanos = Math.max(0L,
+            session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos);
+        OPTIMIZATION_RECORDS.add(new OptimizationRecord(
+            session.generation,
+            describeJoinKind(session),
+            session.serverAddress,
+            totalNanos,
+            SearchTextOptimization.enabled(),
+            session.searchTextPipelineNanos,
+            session.searchTextPipelineCalls,
+            session.fastStripNanos,
+            session.fastStripCalls,
+            session.fastSplitNanos,
+            session.fastSplitCalls,
+            replacedNanos,
+            Map.copyOf(session.optimizationFallbacks),
+            structuralChangeSummary(session)
+        ));
+
+        StringBuilder lines = new StringBuilder("[JETOptimizer] === OPTIMIZATION REPORT ===\n");
+        lines.append("Connection generations profiled in this process: ")
+            .append(OPTIMIZATION_RECORDS.size()).append('\n');
+        for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
+            lines.append("  Generation ").append(record.generation()).append(" (")
+                .append(record.joinKind()).append(", ").append(record.serverAddress()).append(")\n");
+            appendTiming(lines, "    total JEI start", record.totalNanos());
+            lines.append("    fast search-text path: ")
+                .append(record.fastSearchText() ? "enabled" : "disabled (JEI implementation used)")
+                .append('\n');
+            appendTiming(lines, "    pure search-text pipeline", record.pipelineNanos());
+            lines.append("      pipeline calls: ").append(record.pipelineCalls()).append('\n');
+            appendTiming(lines, "      fast chat-format stripping", record.stripNanos());
+            appendTiming(lines, "      fast whitespace splitting", record.splitNanos());
+            appendTiming(lines, "      replaced regex work", record.replacedNanos());
+            lines.append("      strip calls/split calls: ")
+                .append(record.stripCalls()).append('/').append(record.splitCalls()).append('\n');
+            lines.append("    fallbacks to JEI implementation: ")
+                .append(record.fallbacks().isEmpty() ? "none" : record.fallbacks()).append('\n');
+            lines.append("    structural correctness vs previous generation: ")
+                .append(record.structuralChangeSummary()).append('\n');
+        }
+        JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
+    }
+
+    private static String structuralChangeSummary(Session session) {
+        GenerationSnapshot previous = session.previousSnapshot;
+        if (previous == null) {
+            return "unavailable (first connection profiled in this process)";
+        }
+        Map<String, Long> current = session.structuralValues();
+        long comparable = 0L;
+        long changed = 0L;
+        for (Map.Entry<String, Long> entry : previous.values().entrySet()) {
+            Long after = current.get(entry.getKey());
+            if (after == null) {
+                continue;
+            }
+            comparable++;
+            if (!after.equals(entry.getValue())) {
+                changed++;
+            }
+        }
+        return changed + " of " + comparable + " comparable fields differ";
     }
 
     private static void logPluginTimings(Session session) {
@@ -805,6 +1031,19 @@ public final class JETOptimizerProfiler {
         private final Deque<BakedIndexFrame> bakedIndexStarts = new ArrayDeque<>();
         private final Deque<Long> recipeLayoutStarts = new ArrayDeque<>();
         private final Map<String, long[]> tooltipNanosByType = new HashMap<>();
+        private long searchTextPipelineNanos;
+        private int searchTextPipelineCalls;
+        private long searchTextPipelineStartedAt;
+        private long fastStripNanos;
+        private long fastStripStartedAt;
+        private int fastStripCalls;
+        private int fastStripApplied;
+        private long fastSplitNanos;
+        private long fastSplitStartedAt;
+        private int fastSplitCalls;
+        private int fastSplitApplied;
+        private final Map<String, Integer> optimizationFallbacks = new LinkedHashMap<>();
+        private final Map<String, Long> guiRuntimeGates = new LinkedHashMap<>();
         private long tooltipStartedAt;
         private String tooltipTypeUid;
         private String currentSearchPrefix;
@@ -893,6 +1132,12 @@ public final class JETOptimizerProfiler {
             tooltipNanosByType.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .forEach(entry -> values.put("tooltip string calls " + entry.getKey(), entry.getValue()[1]));
+            values.put("search-text pipeline calls", (long) searchTextPipelineCalls);
+            values.put("chat-format stripping calls", (long) fastStripCalls);
+            values.put("whitespace splitting calls", (long) fastSplitCalls);
+            values.put("chat-format stripping applied", (long) fastStripApplied);
+            values.put("whitespace splitting applied", (long) fastSplitApplied);
+            values.put("optimization fallbacks", (long) optimizationFallbacks.values().stream().mapToInt(Integer::intValue).sum());
             values.put("observed plugin UIDs", (long) pluginUids.size());
             values.put("observed plugin UID set hash", pluginUids.isEmpty() ? -1L : pluginUids.hashCode());
             return values;
@@ -955,6 +1200,24 @@ public final class JETOptimizerProfiler {
     }
 
     private record StructuralDifference(String key, Long before, Long after, boolean changed) {
+    }
+
+    private record OptimizationRecord(
+        int generation,
+        String joinKind,
+        String serverAddress,
+        long totalNanos,
+        boolean fastSearchText,
+        long pipelineNanos,
+        int pipelineCalls,
+        long stripNanos,
+        int stripCalls,
+        long splitNanos,
+        int splitCalls,
+        long replacedNanos,
+        Map<String, Integer> fallbacks,
+        String structuralChangeSummary
+    ) {
     }
 
     private static final class SearchPrefixMetrics {

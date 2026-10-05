@@ -480,3 +480,89 @@ Total JEI start
 ```
 
 Plugin UID totals and these sub-stages overlap their enclosing callback/parent stage and should remain in the diagnostic view, not be added into the total. All wall-clock numbers in this document come from single launches on a machine whose same-build spread is 1.1-1.7 s; quote them as one sample of a noisy interval, not as measurements. This work changes instrumentation only; it does not cache, skip JEI work, or change displayed recipes.
+
+## Phase 4: first optimization, and the region it exposed
+
+### What the source trace closed
+
+`ListElementInfo.getStrings` is the last step of the tooltip region and the only part of it that JEI
+owns:
+
+```java
+Set<String> getStrings(List<Component> tooltip) {
+    for (FormattedText component : tooltip) {
+        String string = component.getString();
+        string = StringUtil.removeChatFormatting(string);   // regex (?i)§[0-9A-FK-OR]
+        string = Translator.toLowercaseWithLocale(string);
+        addSplitStrings(result, string);                    // regex \s+ split
+    }
+}
+```
+
+Everything before it is `ingredientRenderer.getTooltip(...)`, which is mod-supplied and bound to the
+live `ClientLevel` and `Player`. Both regexes are pure and run once per tooltip line per ingredient,
+so they are the only part of the region that can be replaced without touching connection-bound state.
+
+Two other structural questions were answered from source and closed:
+
+- `ElementSearch.findElement` is a `HashMap` lookup on the ingredient UID, and
+  `RegisteredIngredientIndex.removeAll` is hash based, so the 17,729 runtime removals are **not**
+  accidental O(N*M). The per-removal cascade costs a few microseconds each.
+- `IngredientBlacklistInternal` does notify visibility once per removed ingredient with a
+  single-element set, but that listener path only flips a field and invalidates a cache, so it is
+  cheap too.
+
+The search index is built over all 68,186 ingredients *before* `onRuntimeAvailable` removes 17,729 of
+them, so roughly a quarter of the region is discarded work. That is real, but the only way to avoid it
+is to construct the `IngredientFilter` after the removals, and the filter is built inside
+`JeiGuiStarter.start`, which plugins need during `registerRuntime`. Deferring it would move about 7 s
+from startup into the first JEI screen open, which is a worse trade, so it was not done.
+
+### Shipped optimization: non-regex search text
+
+`dev.jetoptimizer.SearchTextOptimization` replaces the two regexes with linear scans:
+
+| Original | Replacement | Semantics preserved |
+| --- | --- | --- |
+| `ChatFormatting.stripFormatting` | `stripFormatting` | `(?i)§[0-9A-FK-OR]`, non-overlapping 2-char removal |
+| `WHITESPACE_PATTERN.split` | `splitOnWhitespace` | `trim()` first, then `\s` = `[ \t\n\x0B\f\r]` only |
+
+Two details are easy to get wrong and are handled explicitly:
+
+- `String.trim()` removes every character `<= ' '`, while `\s` matches only six characters. Trimming
+  stays a separate step, otherwise control characters such as `\u0001` would start splitting tokens.
+- `(?i)[K-O]` matches `k l m n o`, not only `k` and `o`. An early version of the replacement dropped
+  the italic, strikethrough and underline codes; the differential test caught it.
+
+Equivalence is checked against the two regexes used as oracles over 34 targeted inputs and 500,000
+random strings drawn from an alphabet containing formatting codes, all ASCII whitespace, control
+characters, and non-ASCII letters: every input produces identical output. A microbenchmark of the
+replaced work over 400,000 realistic tooltip lines measures 0.129 s for the regex path against 0.070 s
+for the fast path, a 1.83x speedup of that work.
+
+**Honest sizing:** that is roughly 0.05 s of the 29.7 s cold total. This is a real and free saving, but
+it is not a meaningful reduction of startup time. It is shipped because it is provably equivalent and
+because the same instrumentation proves whether anything larger is available in this region.
+
+The new `search-text pipeline` counter times JEI's whole pure pipeline. The difference between that
+number and the tooltip source-string total is mod-supplied tooltip rendering, and it is the hard
+ceiling for any optimization that does not touch mod code.
+
+### The region the counters exposed
+
+Comparing the GUI runtime stage against the only two blocks JEI times itself:
+
+| Generation | GUI runtime | Ingredient filter | Not covered by JEI's own timers |
+| --- | --- | --- | --- |
+| 1, cold remote | 11.663 s | 8.034 s | 3.629 s |
+| 2, reconnect | 9.866 s | 6.587 s | 3.279 s |
+| 3, local world | 12.184 s | 8.691 s | 3.493 s |
+
+About a third of the GUI runtime stage was never attributed, and it is the largest unexplored region
+left. `JeiGuiStarterMixin` now records ten ordered gates inside `JeiGuiStarter.start` - the ingredient
+list, the filter, the bookmark codec, lookup history, ingredient overlay, bookmark list, bookmark
+config load, bookmark overlay, recipes GUI, and the input handlers - and reports each block with the
+uncovered remainder. All ten targets were verified to resolve exactly once, in ascending bytecode
+order, against the compiled `JeiGuiStarter.start` of JEI 19.57.0.449.
+
+This is the next optimization target, and it is deliberately measured before it is changed.

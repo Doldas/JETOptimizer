@@ -97,3 +97,47 @@ When a previous generation was profiled in the same process, the profile also pr
 The comparison is diagnostic and fails open. Fields that are absent on either side are skipped rather than reported as differences, an unreachable server address prints `unknown (no server address available)` instead of throwing, and the snapshot is only stored while `profiling` is enabled, so a run with profiling off simply prints `unavailable (first connection profiled in this process)`.
 
 `ListElementInfoMixin` adds the by-type tooltip rows to the search-index detail and the tooltip call counts to the same structural comparison. It keeps one `long[2]` per distinct ingredient-type UID, which is a handful of entries, and adds two `nanoTime()` calls per ingredient inside a stage that already costs about 107 microseconds per ingredient, so it is not a meaningful share of the region it measures.
+
+## Optimization mixins
+
+These are not profiling mixins: they change what JEI does, so each one is gated, fail-open, and has
+its own counters.
+
+`SearchTextOptimization` replaces the two regular expressions in JEI's search-word construction:
+`ChatFormatting.stripFormatting` behind `StringUtil.removeChatFormatting`, and the `\s+` split in
+`ListElementInfo.addSplitStrings`. Both are pure and run once per tooltip line of every ingredient.
+Equivalence with the originals, including the `trim()` versus `\s` difference and the full
+`(?i)[K-O]` range, is verified differentially against the two regexes as oracles.
+
+`StringUtil.removeChatFormatting` is only reached from search-word construction - `getStrings`,
+creative tab names, and `DisplayNameUtil` - so nothing that is rendered is affected.
+
+Both injections fail open three ways: they do nothing while `fastSearchText` is disabled, they leave
+`null` to JEI's own method, and if the replacement throws, the return value is left unset so JEI's
+original body runs. Each fallback is counted and reported by name.
+
+The gate is `optimizations.fastSearchText`, default `true`, cached once per process so the hot path
+never touches the config spec. A config read that throws before the config is registered is not
+cached, so it disables the optimization for that call rather than for the whole session.
+
+## GUI runtime gate waterfall
+
+`JeiGuiStarterMixin` records ten ordered gates inside `JeiGuiStarter.start` in addition to timing the
+whole stage. JEI's own `LoggedTimer` only wraps the ingredient list and the ingredient filter, which
+left roughly 3.3 to 3.6 s of that stage unattributed on every connection.
+
+A gate marks where a named block starts, so its duration is the interval up to the next gate, and the
+final block is measured at the `RETURN` hook. Blocks are recorded in an ordered `LinkedHashMap` rather
+than as begin/end pairs: `defaultRequire` is 0, so a gate whose target does not match this JEI version
+drops out of the waterfall instead of unbalancing it. All ten targets were verified to resolve exactly
+once, in ascending bytecode order, against the compiled `JeiGuiStarter.start` of JEI 19.57.0.449.
+
+## Optimization report
+
+Every profiled connection appends a row to a `[JETOptimizer] === OPTIMIZATION REPORT ===` block that
+lives for the life of the process, so a cold join and a later reconnect are readable side by side.
+
+The replaced-regex figure is measured rather than projected: it is the `search-text pipeline` window
+minus the time spent inside the two replacements, so it can only ever account for work the fast paths
+actually took over. Each row also carries the per-generation totals, the fast-path call counts, the
+fallback count by name, and the structural comparison summary against the previous generation.
