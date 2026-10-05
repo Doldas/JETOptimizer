@@ -5,6 +5,8 @@
 
 **Read this first:** the wall-clock numbers below are single launches on a machine whose same-build spread is 1.1-1.7 s. Structural counters are reproducible to the unit; timings are not. Jump to [The 30-second login delay is JEI](#the-30-second-login-delay-is-jei) for the headline result, then [Eight Prism/ATM10A launches](#eight-prismatm10a-launches-on-the-same-saved-test-server) for the launch table and what is still unmeasured.
 
+**Candidate regions were then checked against the JEI sources rather than only against timings.** See `docs/JEI_SOURCE_ANALYSIS.md` for why the three dominant regions offer no safe redundancy, and `docs/PROFILER_MIXINS.md` for the connection-generation and by-type tooltip instrumentation that now exists to answer the remaining questions.
+
 ## ATM10 Aeronautics baseline supplied for this iteration
 
 | Measurement | Time/count |
@@ -317,8 +319,9 @@ The expanded profiler has now been run eight times on ATM10A. JEI accounts for 7
 
 1. **Profiler overhead is a solved-enough question.** Four instrumented and four uninstrumented launches differ by 0.135 s against a 1.1-1.7 s spread. Do not spend more launches on this; if a bound is ever needed, alternate both arms over six launches each and discard the first after any config change.
 2. **Reconnect and invalidation.** Every recorded launch covered one initial join in a fresh process only; the control runs were terminated after the profile line. Disconnect to the main menu and rejoin the same unchanged server; JETOptimizer clears its pending session on `ClientPlayerNetworkEvent.LoggingOut`, so the reconnect logs a second full `JEI initialization profile` block. Confirm that by checking the new `Connection generation:` and `Join kind:` lines instead of assuming it from the log file, then repeat for server restart, `/reload`, and server switch. A client shutdown is not a reconnect: run C's tail shows `Stopping JEI` → `Sending Runtime Unavailable` → `Stopping!`, which is a clean quit after disconnecting, not a second join. The second and later connections also print a `Structural comparison vs previous connection` block, which is the only reliable way to tell whether a reconnect actually reused anything.
-3. **Unexplained regions.** `Other (unattributed)` is 2.656-2.705 s across instrumented runs and `Ingredient registration` swung 4.488 s → 3.377 s → 3.377 s-class values with no per-source detail. Both need narrower hooks before any optimization argument can be made.
+3. **Unexplained regions.** `Other (unattributed)` is 2.656-2.705 s across instrumented runs and `Ingredient registration` swung 4.488 s → 3.377 s → 3.377 s-class values with no per-source detail. Both need narrower hooks before any optimization argument can be made. The tooltip region is now covered by per-ingredient-type rows; `Ingredient registration` is still unattributed by source.
 4. **Do not reuse run A.** Its 27.447 s is unexplained and is not a valid baseline; use the mean of a fresh arm instead.
+5. **Do not treat the dominant region as reuse-able work.** `docs/JEI_SOURCE_ANALYSIS.md` shows the 7.265 s tooltip stage is bound to `ClientLevel` and the local `Player` inside `SafeIngredientUtil.getPlainTooltipForSearch`, and that the supplier and recipe-map regions have no duplicate computation to remove. Any proposal to cache those needs new evidence, not the existing timings.
 
 The disjoint stage hierarchy to compare against is:
 
