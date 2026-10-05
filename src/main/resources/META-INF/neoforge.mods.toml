@@ -1,0 +1,37 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "${mod_license}"
+
+[[mods]]
+modId = "jetoptimizer"
+version = "${mod_version}"
+displayName = "JETOptimizer"
+authors = "JETOptimizer contributors"
+description = '''
+Experimental JEI initialization profiler and performance research mod for large modpacks.
+'''
+
+[[dependencies.jetoptimizer]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.jetoptimizer]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.jetoptimizer]]
+modId = "jei"
+type = "optional"
+versionRange = "[19.57.0.449,)"
+ordering = "AFTER"
+side = "CLIENT"
+
+[[mixins]]
+config = "jetoptimizer.mixins.json"
+requiredMods = ["jei"]

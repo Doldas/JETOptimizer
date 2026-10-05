@@ -1,0 +1,19 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "compatibilityLevel": "JAVA_21",
+  "package": "dev.jetoptimizer.mixin",
+  "client": [
+    "ClientPacketListenerMixin",
+    "IngredientFilterMixin",
+    "IngredientListElementFactoryMixin",
+    "JeiGuiStarterMixin",
+    "JeiStarterMixin",
+    "PluginCallerMixin",
+    "PluginLoaderMixin",
+    "RecipeManagerInternalMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}
