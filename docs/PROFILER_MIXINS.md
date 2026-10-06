@@ -120,24 +120,61 @@ The gate is `optimizations.fastSearchText`, default `true`, cached once per proc
 never touches the config spec. A config read that throws before the config is registered is not
 cached, so it disables the optimization for that call rather than for the whole session.
 
+### KubeJS `onRuntimeAvailable` phase probe and category-map skip
+
+`KubeJSJEIPluginMixin` targets KubeJS `dev.latvian.mods.kubejs.integration.jei.KubeJSJEIPlugin`
+by string (`@Pseudo`). KubeJS is not on the compile classpath, so JEI-typed redirect handlers are
+used where the callee is a JEI type, and string `@At` targets with `@Inject` cover the KubeJS-side
+boundaries.
+
+A **phase probe** marks eleven bytecode boundaries inside `onRuntimeAvailable` (category map built,
+remove-categories events done, ingredient fetch start, both type-table init passes, remote
+item-removal start, remote add-entries start, callback end) plus a `HEAD`/`RETURN` bracket, and
+reports the gaps as `KubeJS onRuntimeAvailable phase timing:`. To make the expensive first segment
+attributable, redirects time `IJeiRuntime.getRecipeManager` (ordinals 0 and 1),
+`IJeiRuntime.getIngredientManager`, `IRecipeManager.createRecipeCategoryLookup`,
+`IRecipeCategoriesLookup.get` and the `Stream.collect`, while `Lazy.get` is bounded with
+`@Inject` before/after pairs because KubeJS's `Lazy` type is not available to the redirect handler.
+
+A **category-map skip** removes the 2.6 s cost that the probe isolated. KubeJS builds
+`categories = new HashMap<>(createRecipeCategoryLookup().get().collect(toMap(...)))`, and JEI's
+first `get()` computes `recipeCategoriesVisibleCache` by running `isCategoryHidden` over all 524
+categories (double `hasRecipeCatalysts` plus `getRecipesStream().findAny()` each). The map is only
+consumed by two event posts guarded by `RecipeViewerEvents.REMOVE_CATEGORIES/.REMOVE_RECIPES
+.hasListeners()` and by a `remote != null` loop. The `get()` redirect therefore checks, purely
+reflectively and fail-open, whether either removal event has a listener (via
+`EventHandler.hasListeners()` on those public static fields) and whether the plugin's private
+`remote` field is null; only when all three are absent does it return `Stream.empty()`, so the
+`toMap` collect yields an empty map and `onRuntimeAvailable` proceeds identically. Any reflection
+failure returns `false` and the full map is built as before. Measurement on a cold remote join:
+callback total 2.638 s -> 0.001 s, `Total JEI start` 26.342 s -> 23.671 s, JEI GUI runtime
+construction unchanged at 10.391 vs 10.468 s (no cost migration).
+
 ## GUI runtime gate waterfall
 
-`JeiGuiStarterMixin` records ten ordered gates inside `JeiGuiStarter.start` in addition to timing the
-whole stage. JEI's own `LoggedTimer` only wraps the ingredient list and the ingredient filter, which
-left roughly 3.3 to 3.6 s of that stage unattributed on every connection.
+`JeiGuiStarterMixin` records ten ordered invocation boundaries inside `JeiGuiStarter.start`, plus a
+method-entry gate, in addition to timing the whole stage. Together these produce eleven measured
+intervals: setup before ingredient-list construction; ingredient list; ingredient filter; bookmark
+factory/codec; lookup history; ingredient overlay; bookmark list; bookmark config load; bookmark
+overlay; recipes GUI; and input handlers through method return. The setup block includes helper/config
+retrieval and `JeiGuiColors.onResourceManagerReload`, which parses JEI's GUI color resource stack.
+JEI's own `LoggedTimer` only wraps the ingredient list and the ingredient filter, which left roughly
+3.3 to 3.6 s of that stage unattributed on every connection.
 
 A gate marks where a named block starts, so its duration is the interval up to the next gate, and the
 final block is measured at the `RETURN` hook. Blocks are recorded in an ordered `LinkedHashMap` rather
-than as begin/end pairs: `defaultRequire` is 0, so a gate whose target does not match this JEI version
-drops out of the waterfall instead of unbalancing it. All ten targets were verified to resolve exactly
-once, in ascending bytecode order, against the compiled `JeiGuiStarter.start` of JEI 19.57.0.449.
+than as begin/end pairs: `defaultRequire` is 0, so a boundary whose target does not match this JEI
+version drops out of the waterfall instead of unbalancing it. All ten invocation targets were verified
+to resolve exactly once, in ascending bytecode order, against the compiled `JeiGuiStarter.start` of
+JEI 19.57.0.449.
 
 ## Optimization report
 
 Every profiled connection appends a row to a `[JETOptimizer] === OPTIMIZATION REPORT ===` block that
 lives for the life of the process, so a cold join and a later reconnect are readable side by side.
 
-The replaced-regex figure is measured rather than projected: it is the `search-text pipeline` window
-minus the time spent inside the two replacements, so it can only ever account for work the fast paths
-actually took over. Each row also carries the per-generation totals, the fast-path call counts, the
-fallback count by name, and the structural comparison summary against the previous generation.
+The report shows each fast path's measured time and call count, plus `pipeline work outside fast paths`
+(the pipeline total minus those measured sections). That residual is **not** a savings estimate; the
+report does not infer time saved versus the original regexes. Estimate savings separately with a
+controlled baseline or a differential microbenchmark. Each row also carries the per-generation
+totals, fallback count by name, and structural comparison summary against the previous generation.

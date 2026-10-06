@@ -1,11 +1,63 @@
 # JEI startup performance analysis
 
 **Source baseline:** JEI 19.57.0.449, Minecraft 1.21.1, NeoForge 21.1.x.
-**Current goal:** explain the major JEI startup regions with measurements. No reconnect cache or behavior-changing optimization is implemented.
+**Current goal:** explain the major JEI startup regions with measurements and remove provably dead work with fail-open, gated optimizations. The newest result, a 2.6 s KubeJS fix that is fully accounted for, is [KubeJS `onRuntimeAvailable` root cause and fix](#kubejs-onruntimeavailable-root-cause-and-fix-category-map-skip).
 
 **Read this first:** the wall-clock numbers below are single launches on a machine whose same-build spread is 1.1-1.7 s. Structural counters are reproducible to the unit; timings are not. Jump to [The 30-second login delay is JEI](#the-30-second-login-delay-is-jei) for the headline result, then [Eight Prism/ATM10A launches](#eight-prismatm10a-launches-on-the-same-saved-test-server) for the launch table and what is still unmeasured.
 
 **Candidate regions were then checked against the JEI sources rather than only against timings.** See `docs/JEI_SOURCE_ANALYSIS.md` for why the three dominant regions offer no safe redundancy, and `docs/PROFILER_MIXINS.md` for the connection-generation and by-type tooltip instrumentation that now exists to answer the remaining questions.
+
+## KubeJS `onRuntimeAvailable` root cause and fix (category-map skip)
+
+**Status: measured, isolated, and optimized in this iteration.** KubeJS's JEI callback was a fixed
+~2.6-2.9 s on every join inside `Sending Runtime` (reported as `kubejs:jei`). Phase instrumentation
+merged into `KubeJSJEIPlugin.onRuntimeAvailable` (see `docs/PROFILER_MIXINS.md`) attributed the
+whole cost to a single line of KubeJS:
+
+```java
+var categories = new HashMap<>(runtime.getRecipeManager().createRecipeCategoryLookup()
+    .get()
+    .collect(Collectors.toMap(cat -> cat.getRecipeType().getUid(), Function.identity())));
+```
+
+Bytecode-level timing after the callback begin (cold remote join):
+
+| Sub-region | Cost |
+|---|---:|
+| Total callback | 2.638 s |
+| `IRecipeCategoriesLookup.get()` | **2637.087 ms** |
+| `createRecipeCategoryLookup()` | 0.005 ms |
+| `Stream.collect(Collectors.toMap)` | 0.094 ms |
+| first-segment remainder (manager getters, `HashMap` copy, key lambda) | ~0.6 ms |
+
+`get()` delegates to `RecipeManagerInternal.getRecipeCategoriesForTypes(List.of(), EMPTY_FOCUS,
+false)`. Its `recipeCategoriesVisibleCache` is null on the first join, so JEI computes it over all
+524 categories, and each `isCategoryHidden` test runs two `hasRecipeCatalysts` scans plus
+`getRecipesStream().findAny()` (JEI 19.57.0.449 source). That first-call cache computation is the
+2.6 s.
+
+The resulting map is consumed only by two event posts that are guarded by
+`RecipeViewerEvents.REMOVE_CATEGORIES`/`.REMOVE_RECIPES .hasListeners()`, and by the remote-removal
+loop that runs only when `KubeJSJEIPlugin.remote != null`. In this pack both listeners are absent
+and `remote` is null, so the 2.6 s are **dead work on every join**.
+
+The fix is a fail-open `@Redirect` on `IRecipeCategoriesLookup.get()`: when neither removal event
+has a listener and `remote == null` (both read reflectively), it returns `Stream.empty()`, so the
+`toMap` collect produces an empty map and `onRuntimeAvailable` continues unchanged. Any reflection
+failure, or a present listener, builds the full map exactly as before.
+
+Measured effect, cold remote join (generation 1, same server, same harness):
+
+| Quantity | Before | After |
+|---|---:|---:|
+| KubeJS callback total | 2.638 s | 0.001 s |
+| `Total JEI start` | 26.342 s | **23.671 s** |
+| JEI GUI runtime construction | 10.468 s | 10.391 s |
+| Ingredient filter construction | 7.354 s | 7.325 s |
+
+The 2.6 s did **not** migrate into the GUI stage: GUI runtime construction and the ingredient
+filter are unchanged, so no other JEI startup path computes the visible-category cache in this
+pack. The saving is net, and behaviour is preserved whenever the map is actually consumed.
 
 ## ATM10 Aeronautics baseline supplied for this iteration
 
@@ -558,11 +610,49 @@ Comparing the GUI runtime stage against the only two blocks JEI times itself:
 | 2, reconnect | 9.866 s | 6.587 s | 3.279 s |
 | 3, local world | 12.184 s | 8.691 s | 3.493 s |
 
-About a third of the GUI runtime stage was never attributed, and it is the largest unexplored region
-left. `JeiGuiStarterMixin` now records ten ordered gates inside `JeiGuiStarter.start` - the ingredient
-list, the filter, the bookmark codec, lookup history, ingredient overlay, bookmark list, bookmark
-config load, bookmark overlay, recipes GUI, and the input handlers - and reports each block with the
-uncovered remainder. All ten targets were verified to resolve exactly once, in ascending bytecode
-order, against the compiled `JeiGuiStarter.start` of JEI 19.57.0.449.
+`JeiGuiStarterMixin` places ten ordered invocation boundaries inside `JeiGuiStarter.start`,
+covering ingredient-list construction, the filter, bookmark factory/codec, lookup history, both
+overlays, bookmark construction/loading, the recipes GUI, and input handlers. A method-entry gate
+also captures the setup before ingredient-list construction, giving eleven measured intervals in
+total; the final interval closes at `RETURN`. That opening setup includes helper/config retrieval and
+`JeiGuiColors.onResourceManagerReload`, which reads JEI's `gui/colors.json` resource stack and parses
+its color entries. The report retains an uncovered remainder for timer/instrumentation gaps. All ten
+invocation targets were verified to resolve exactly once, in ascending bytecode order, against the
+compiled `JeiGuiStarter.start` of JEI 19.57.0.449.
 
-This is the next optimization target, and it is deliberately measured before it is changed.
+The corrected Mixin was exercised by an automated cold join, reconnect, and second reconnect on the
+same server. No `JETOptimizer` Mixin errors occurred; all three runs reported eleven intervals with
+zero uncovered GUI-runtime time, and the whitespace fast path applied on every call:
+
+| Generation | Total JEI start | GUI runtime | Ingredient filter | Recipes GUI | Tooltip source strings | Pure search-text pipeline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1, cold | 25.963 s | 10.130 s | 7.188 s | 2.577 s | 6.246 s | 0.119 s |
+| 2, reconnect | 24.361 s | 9.610 s | 6.490 s | 2.824 s | 5.487 s | 0.105 s |
+| 3, reconnect | 24.713 s | 9.725 s | 6.649 s | 2.772 s | 5.555 s | 0.113 s |
+
+The GUI runtime is now attributed: ingredient-filter construction consumes 6.5-7.2 s, mostly
+mod-supplied tooltip rendering; the pure search-text work is about 0.1 s; and the recipes GUI
+constructor is 2.6-2.8 s. A candidate cache for JEI's recipe-category transfer-handler comparator
+reused 495 of 992 checks, but the entire sort took only 0.001 s and the recipes-GUI gate remained
+2.7-2.8 s. That optimization was discarded.
+
+## Automated ATM10A runs and the three-second target
+
+`tools/atm10a-jei-test.py --reconnects 1` launches the existing Prism instance with its saved account,
+joins the configured server, checks that the Mixin gates and fast paths applied, disconnects through
+the UI, and reconnects in the same process. `--attach --reconnects N` repeats reconnects in an
+already-running instance. The runner does not edit the mod list or any mod configuration; it requires
+profiling and `fastSearchText` to already be enabled.
+
+The full synchronous JEI startup still takes 23.5-26.6 s. Three independent required regions account
+for approximately 18-20 s before counting the rest: recipe/category registration (9.2-10.2 s),
+ingredient-filter construction (6.1-7.5 s), and `Sending Runtime` (2.6-2.7 s). Most of the filter's
+cost is live tooltip rendering; `Sending Runtime` is primarily the KubeJS JEI callback. These execute
+JEI and other mods' registration/rendering work, so a behavior-preserving change confined to
+JETOptimizer cannot reduce them to three seconds. The safe regex replacement only targets about a
+tenth of a second of the pure text pipeline.
+
+Reaching a three-second *world-entry* time would therefore require delaying or suppressing substantial
+JEI functionality while the world opens; reaching a three-second *complete JEI-ready* time would
+require skipping required recipe, ingredient, or mod callback work. Both are different behavior and
+are not produced by a cache or a faster JETOptimizer hot path.
