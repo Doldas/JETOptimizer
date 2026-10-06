@@ -69,9 +69,13 @@ reconnectCache = false
 debugCache = false
 debugCacheInvalidation = false
 experimentalOptimizations = false
+
+[optimizations]
+fastSearchText = true
+kubeJsItemRemovalIndex = true
 ```
 
-The two profiling options are independent. Reconnect caching and experimental optimizations remain disabled.
+The two profiling options are independent. `reconnectCache`, `debugCache`, `debugCacheInvalidation`, and `experimentalOptimizations` are reserved (not currently consumed). The `[optimizations]` group is active; its two options default to enabled.
 
 To measure what the instrumentation itself costs, keep the mod enabled but stand the timing hooks down:
 

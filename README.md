@@ -2,7 +2,7 @@
 
 JETOptimizer is an experimental client-side performance research mod for Minecraft 1.21.1 on NeoForge. It focuses initially on measuring JEI initialization during joins and reconnects in large modpacks.
 
-**No reconnect cache or performance optimization is enabled.** The first development milestone is source-backed lifecycle analysis and accurate profiling. No speedup is claimed until it is measured in repeatable in-game benchmarks.
+**Reconnect caching is not implemented, but experimental optimizations are now active** and are only claimed where measured in repeatable in-game benchmarks. Current optimizations: fail-open replacement of JEI's per-tooltip-line search-word regular expressions, and removal of provably-dead KubeJS `onRuntimeAvailable` work (its recipe-category map and, where a remote removal scan runs, an ID-index on simple removal ingredients). Measured results and the fail-open reasoning are in the [performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md).
 
 ## Compatibility
 
@@ -15,7 +15,7 @@ JETOptimizer is an experimental client-side performance research mod for Minecra
 
 ## Current status
 
-The repository contains the initial client mod/config skeleton, the [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md), and the [ATM10 Aeronautics performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md). Profiling hooks are added only at source-confirmed lifecycle and timing boundaries. Reconnect caching remains disabled and unimplemented.
+The repository contains the client mod/config, the [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md), and the [ATM10 Aeronautics performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md). Profiling hooks are added only at source-confirmed lifecycle and timing boundaries. Active optimizations are individually gated (or always-on but fail-open by construction — a missed probe or unknown ingredient restores the original code path); see the configuration table below. Reconnect caching remains disabled and unimplemented.
 
 For hands-on testing with the local Prism Launcher ATM10 Aeronautics instance, follow [the Prism/ATM10A test guide](docs/PRISM_ATM10A_MANUAL_TEST.md).
 
@@ -33,9 +33,11 @@ NeoForge creates `config/jetoptimizer-client.toml` on the client. Current option
 | `reconnectCache` | `false` | Reserved; no cache implementation is active |
 | `debugCache` | `false` | Reserved cache diagnostics |
 | `debugCacheInvalidation` | `false` | Reserved invalidation diagnostics |
-| `experimentalOptimizations` | `false` | Keep experimental optimizations disabled by default |
+| `experimentalOptimizations` | `false` | Reserved; currently not consumed by any feature |
+| `fastSearchText` | `true` | Replace JEI's per-tooltip-line search-word regexes with equivalent non-regex scans; pure text work, no cached state |
+| `kubeJsItemRemovalIndex` | `true` | Dense-ID candidate index for simple KubeJS remote item-removal ingredients; custom predicates keep the original scan |
 
-Profiling and plugin profiling are independent. Options marked reserved are currently inert; their presence does not imply that a cache or optimization exists.
+Profiling and plugin profiling are independent. The reserved reconnect-cache options (`reconnectCache`, `debugCache`, `debugCacheInvalidation`) and `experimentalOptimizations` are currently inert; their presence does not imply that a cache exists. Active optimizations are individually gated (`fastSearchText` by itself, `kubeJsItemRemovalIndex` by `enabled` + the option). The KubeJS `onRuntimeAvailable` category-map skip has no config switch: it is always on, and fail-open by construction — a missed reflection probe or a present `REMOVE_*` listener restores the full original map build.
 
 ## Build and run
 
