@@ -13,6 +13,7 @@ public final class JETOptimizerConfig {
     public static final ModConfigSpec.BooleanValue DEBUG_CACHE_INVALIDATION;
     public static final ModConfigSpec.BooleanValue EXPERIMENTAL_OPTIMIZATIONS;
     public static final ModConfigSpec.BooleanValue FAST_SEARCH_TEXT;
+    public static final ModConfigSpec.BooleanValue KUBEJS_ITEM_REMOVAL_INDEX;
     public static final ModConfigSpec SPEC;
 
     static {
@@ -32,6 +33,12 @@ public final class JETOptimizerConfig {
                 "Pure text work only: no cached state is kept and no connection-bound object is touched."
             )
             .define("fastSearchText", true);
+        KUBEJS_ITEM_REMOVAL_INDEX = BUILDER
+            .comment(
+                "Uses a short-lived dense-ID candidate bitset for simple KubeJS remote item-removal ingredients.",
+                "Unknown/custom ingredient predicates use KubeJS's original full scan."
+            )
+            .define("kubeJsItemRemovalIndex", true);
         BUILDER.pop();
         BUILDER.pop();
         SPEC = BUILDER.build();

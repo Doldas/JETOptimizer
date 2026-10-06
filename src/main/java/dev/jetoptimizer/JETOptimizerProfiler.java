@@ -551,6 +551,59 @@ public final class JETOptimizerProfiler {
         session.guiRuntimeGates.merge(label, nanos, Long::sum);
     }
 
+    /** Records the one-callback, generation-local KubeJS remote item removal candidate index. */
+    public static void recordKubeJSItemRemovalIndex(
+        boolean enabled,
+        int filterCount,
+        int patternCount,
+        int sourceEntries,
+        int filterItemRegistryIds,
+        int candidateEntries,
+        int candidateLoopExpected,
+        int candidateLoopEntries,
+        int predicateTestsBypassed,
+        int originalPredicateTests,
+        int fullScanFallbacks,
+        int fallbackFilters,
+        int managerRemovalRequestEntries,
+        int indexBuilds,
+        int leafItemValues,
+        long indexNanos
+    ) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null || !session.profiling) {
+            return;
+        }
+        session.observedHooks.add("KubeJSJEIPlugin.onRuntimeAvailable item removal index");
+        session.kubeJsItemRemovalObserved = true;
+        session.kubeJsItemRemovalEnabled = enabled;
+        session.kubeJsItemRemovalFilterCount += filterCount;
+        session.kubeJsItemRemovalPatternCount += patternCount;
+        session.kubeJsItemRemovalSourceEntries += sourceEntries;
+        session.kubeJsItemRemovalFilterItemRegistryIds += filterItemRegistryIds;
+        session.kubeJsItemRemovalCandidateEntries += candidateEntries;
+        session.kubeJsItemRemovalCandidateLoopExpected += candidateLoopExpected;
+        session.kubeJsItemRemovalCandidateLoopEntries += candidateLoopEntries;
+        session.kubeJsItemRemovalPredicateTestsBypassed += predicateTestsBypassed;
+        session.kubeJsItemRemovalOriginalPredicateTests += originalPredicateTests;
+        session.kubeJsItemRemovalFullScanFallbacks += fullScanFallbacks;
+        session.kubeJsItemRemovalFallbackFilters += fallbackFilters;
+        session.kubeJsItemRemovalRequestEntries += managerRemovalRequestEntries;
+        session.kubeJsItemRemovalIndexBuilds += indexBuilds;
+        session.kubeJsItemRemovalLeafItemValues += leafItemValues;
+        session.kubeJsItemRemovalIndexNanos += indexNanos;
+    }
+
+    /** Stores the checkpoint report built inside KubeJSJEIPlugin.onRuntimeAvailable for this generation. */
+    public static void recordKubeJSCallbackPhases(String report) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null || !session.profiling || report == null || report.isEmpty()) {
+            return;
+        }
+        session.observedHooks.add("KubeJSJEIPlugin.onRuntimeAvailable phase probe");
+        session.kubeJSCallbackPhaseReport = report;
+    }
+
     private static Session searchSession() {
         Session session = ACTIVE_SESSION.get();
         return session != null && session.searchStageActive ? session : null;
@@ -602,6 +655,8 @@ public final class JETOptimizerProfiler {
         appendRecipeRegistrationBreakdown(lines, session);
         appendIngredientRegistrationBreakdown(lines, session);
         appendSendingRuntimeBreakdown(lines, session);
+        appendKubeJSItemRemovalIndex(lines, session);
+        appendKubeJSCallbackPhases(lines, session);
         appendSearchIndexBreakdown(lines, session);
         appendGuiRuntimeGates(lines, session);
         JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
@@ -824,6 +879,38 @@ public final class JETOptimizerProfiler {
         );
     }
 
+    private static void appendKubeJSItemRemovalIndex(StringBuilder lines, Session session) {
+        if (!session.kubeJsItemRemovalObserved) {
+            return;
+        }
+        lines.append("KubeJS remote item-removal ID index (inside onRuntimeAvailable):\n");
+        lines.append("  optimization: ").append(session.kubeJsItemRemovalEnabled ? "enabled" : "disabled").append('\n');
+        lines.append("  filter trees/pattern entries: ").append(session.kubeJsItemRemovalFilterCount).append('/')
+            .append(session.kubeJsItemRemovalPatternCount).append('\n');
+        lines.append("  leaf candidate stacks/item registry IDs: ").append(session.kubeJsItemRemovalLeafItemValues).append('/')
+            .append(session.kubeJsItemRemovalFilterItemRegistryIds).append('\n');
+        lines.append("  source entries/candidate dense IDs: ").append(session.kubeJsItemRemovalSourceEntries).append('/')
+            .append(session.kubeJsItemRemovalCandidateEntries).append('\n');
+        lines.append("  KubeJS loop entries expected/observed: ").append(session.kubeJsItemRemovalCandidateLoopExpected).append('/')
+            .append(session.kubeJsItemRemovalCandidateLoopEntries).append('\n');
+        lines.append("  Ingredient.test calls bypassed/original fallback: ")
+            .append(session.kubeJsItemRemovalPredicateTestsBypassed).append('/')
+            .append(session.kubeJsItemRemovalOriginalPredicateTests).append('\n');
+        lines.append("  manager removal request entries: ").append(session.kubeJsItemRemovalRequestEntries).append('\n');
+        lines.append("  index builds/fallback filters/full-scan fallbacks: ")
+            .append(session.kubeJsItemRemovalIndexBuilds).append('/')
+            .append(session.kubeJsItemRemovalFallbackFilters).append('/')
+            .append(session.kubeJsItemRemovalFullScanFallbacks).append('\n');
+        appendTiming(lines, "  dense-ID candidate-index construction", session.kubeJsItemRemovalIndexNanos);
+    }
+
+    private static void appendKubeJSCallbackPhases(StringBuilder lines, Session session) {
+        if (session.kubeJSCallbackPhaseReport == null) {
+            return;
+        }
+        lines.append(session.kubeJSCallbackPhaseReport);
+    }
+
     private static void appendSearchIndexBreakdown(StringBuilder lines, Session session) {
         long searchStage = session.stageNanos.getOrDefault(STAGE_SEARCH_INDEX, -1L);
         if (searchStage < 0L) {
@@ -878,8 +965,8 @@ public final class JETOptimizerProfiler {
     }
 
     /**
-     * The fast-path counters only start once the pipeline window is open, so subtracting them from
-     * the pipeline total isolates the regex work that was replaced rather than the whole region.
+     * The fast-path counters only start once the pipeline window is open. The residual is pipeline
+     * work outside those measured replacements, not an estimate of savings versus the regexes.
      */
     private static void appendSearchTextOptimization(StringBuilder lines, Session session) {
         lines.append("  Search-text pipeline (pure work inside getStrings): ")
@@ -893,7 +980,7 @@ public final class JETOptimizerProfiler {
             .append(formatSeconds(session.fastSplitNanos))
             .append(" over ").append(session.fastSplitCalls).append(" calls (")
             .append(session.fastSplitApplied).append(" applied)\n");
-        appendTiming(lines, "    replaced regex work", Math.max(0L,
+        appendTiming(lines, "    pipeline work outside fast paths", Math.max(0L,
             session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos));
         if (!session.optimizationFallbacks.isEmpty()) {
             lines.append("    fallbacks to JEI implementation: ")
@@ -918,12 +1005,12 @@ public final class JETOptimizerProfiler {
      * Per-generation summary of what the shipped optimizations actually did, kept across
      * connections so a cold join and a later reconnect can be read side by side.
      *
-     * <p>The replaced-regex figure is measured, not projected: it is the pipeline window minus the
-     * time spent inside the two replacements, so it can only ever account for work the fast paths
-     * took over.
+     * <p>The residual pipeline figure is not a savings estimate: it is the pipeline window minus
+     * time spent inside the measured fast paths. Savings versus the original regexes require an
+     * independent baseline and are not inferred here.
      */
     private static void logOptimizationReport(Session session, long totalNanos) {
-        long replacedNanos = Math.max(0L,
+        long pipelineOutsideFastPathsNanos = Math.max(0L,
             session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos);
         OPTIMIZATION_RECORDS.add(new OptimizationRecord(
             session.generation,
@@ -937,7 +1024,17 @@ public final class JETOptimizerProfiler {
             session.fastStripCalls,
             session.fastSplitNanos,
             session.fastSplitCalls,
-            replacedNanos,
+            pipelineOutsideFastPathsNanos,
+            session.kubeJsItemRemovalObserved,
+            session.kubeJsItemRemovalEnabled,
+            session.kubeJsItemRemovalIndexNanos,
+            session.kubeJsItemRemovalSourceEntries,
+            session.kubeJsItemRemovalCandidateEntries,
+            session.kubeJsItemRemovalCandidateLoopEntries,
+            session.kubeJsItemRemovalPredicateTestsBypassed,
+            session.kubeJsItemRemovalOriginalPredicateTests,
+            session.kubeJsItemRemovalRequestEntries,
+            session.kubeJsItemRemovalFallbackFilters + session.kubeJsItemRemovalFullScanFallbacks,
             Map.copyOf(session.optimizationFallbacks),
             structuralChangeSummary(session)
         ));
@@ -956,9 +1053,25 @@ public final class JETOptimizerProfiler {
             lines.append("      pipeline calls: ").append(record.pipelineCalls()).append('\n');
             appendTiming(lines, "      fast chat-format stripping", record.stripNanos());
             appendTiming(lines, "      fast whitespace splitting", record.splitNanos());
-            appendTiming(lines, "      replaced regex work", record.replacedNanos());
+            appendTiming(lines, "      pipeline work outside fast paths", record.pipelineOutsideFastPathsNanos());
             lines.append("      strip calls/split calls: ")
                 .append(record.stripCalls()).append('/').append(record.splitCalls()).append('\n');
+            if (record.kubeJsItemRemovalObserved()) {
+                lines.append("    KubeJS item-removal ID index: ")
+                    .append(record.kubeJsItemRemovalEnabled() ? "enabled" : "disabled")
+                    .append("; source/candidates ")
+                    .append(record.kubeJsItemRemovalSourceEntries()).append('/')
+                    .append(record.kubeJsItemRemovalCandidateEntries())
+                    .append("; loop entries ").append(record.kubeJsItemRemovalCandidateLoopEntries())
+                    .append("; predicate tests bypassed/original ")
+                    .append(record.kubeJsItemRemovalPredicateTestsBypassed()).append('/')
+                    .append(record.kubeJsItemRemovalOriginalPredicateTests())
+                    .append("; manager removal request ").append(record.kubeJsItemRemovalRequestEntries())
+                    .append("; fallbacks ").append(record.kubeJsItemRemovalFallbacks()).append('\n');
+                appendTiming(lines, "      KubeJS dense-ID index construction", record.kubeJsItemRemovalIndexNanos());
+            } else {
+                lines.append("    KubeJS item-removal ID index: unavailable (callback not observed)\n");
+            }
             lines.append("    fallbacks to JEI implementation: ")
                 .append(record.fallbacks().isEmpty() ? "none" : record.fallbacks()).append('\n');
             lines.append("    structural correctness vs previous generation: ")
@@ -1044,6 +1157,24 @@ public final class JETOptimizerProfiler {
         private int fastSplitApplied;
         private final Map<String, Integer> optimizationFallbacks = new LinkedHashMap<>();
         private final Map<String, Long> guiRuntimeGates = new LinkedHashMap<>();
+        private boolean kubeJsItemRemovalObserved;
+        private boolean kubeJsItemRemovalEnabled;
+        private int kubeJsItemRemovalFilterCount;
+        private int kubeJsItemRemovalPatternCount;
+        private int kubeJsItemRemovalLeafItemValues;
+        private int kubeJsItemRemovalFilterItemRegistryIds;
+        private int kubeJsItemRemovalSourceEntries;
+        private int kubeJsItemRemovalCandidateEntries;
+        private int kubeJsItemRemovalCandidateLoopExpected;
+        private int kubeJsItemRemovalCandidateLoopEntries;
+        private int kubeJsItemRemovalPredicateTestsBypassed;
+        private int kubeJsItemRemovalOriginalPredicateTests;
+        private int kubeJsItemRemovalFullScanFallbacks;
+        private int kubeJsItemRemovalFallbackFilters;
+        private int kubeJsItemRemovalRequestEntries;
+        private int kubeJsItemRemovalIndexBuilds;
+        private long kubeJsItemRemovalIndexNanos;
+        private String kubeJSCallbackPhaseReport;
         private long tooltipStartedAt;
         private String tooltipTypeUid;
         private String currentSearchPrefix;
@@ -1138,6 +1269,11 @@ public final class JETOptimizerProfiler {
             values.put("chat-format stripping applied", (long) fastStripApplied);
             values.put("whitespace splitting applied", (long) fastSplitApplied);
             values.put("optimization fallbacks", (long) optimizationFallbacks.values().stream().mapToInt(Integer::intValue).sum());
+            values.put("KubeJS item-removal source entries", (long) kubeJsItemRemovalSourceEntries);
+            values.put("KubeJS item-removal filter item IDs", (long) kubeJsItemRemovalFilterItemRegistryIds);
+            values.put("KubeJS item-removal candidate entries", (long) kubeJsItemRemovalCandidateEntries);
+            values.put("KubeJS item-removal request entries", (long) kubeJsItemRemovalRequestEntries);
+            values.put("KubeJS item-removal predicate tests bypassed", (long) kubeJsItemRemovalPredicateTestsBypassed);
             values.put("observed plugin UIDs", (long) pluginUids.size());
             values.put("observed plugin UID set hash", pluginUids.isEmpty() ? -1L : pluginUids.hashCode());
             return values;
@@ -1214,7 +1350,17 @@ public final class JETOptimizerProfiler {
         int stripCalls,
         long splitNanos,
         int splitCalls,
-        long replacedNanos,
+        long pipelineOutsideFastPathsNanos,
+        boolean kubeJsItemRemovalObserved,
+        boolean kubeJsItemRemovalEnabled,
+        long kubeJsItemRemovalIndexNanos,
+        int kubeJsItemRemovalSourceEntries,
+        int kubeJsItemRemovalCandidateEntries,
+        int kubeJsItemRemovalCandidateLoopEntries,
+        int kubeJsItemRemovalPredicateTestsBypassed,
+        int kubeJsItemRemovalOriginalPredicateTests,
+        int kubeJsItemRemovalRequestEntries,
+        int kubeJsItemRemovalFallbacks,
         Map<String, Integer> fallbacks,
         String structuralChangeSummary
     ) {

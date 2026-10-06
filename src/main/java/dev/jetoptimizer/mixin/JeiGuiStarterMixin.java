@@ -55,7 +55,7 @@ abstract class JeiGuiStarterMixin {
     }
 
     @Inject(method = "start", at = @At(value = "INVOKE", ordinal = 0, shift = At.Shift.BEFORE, target =
-        "Lmezz/jei/gui/ingredients/IngredientFilter;.<init>(Lmezz/jei/gui/filter/IFilterTextSource;Lmezz/jei/common/config/IClientConfig;Lmezz/jei/common/config/IIngredientFilterConfig;Lmezz/jei/api/runtime/IIngredientManager;Ljava/util/function/Function;Ljava/util/List;Lmezz/jei/api/helpers/IModIdHelper;Lmezz/jei/api/runtime/IIngredientVisibility;Lmezz/jei/gui/config/IngredientTypeSortingConfig;Lmezz/jei/api/helpers/IColorHelper;Lmezz/jei/api/search/ISearchStorageBuilderFactory;Lmezz/jei/common/config/IClientToggleState;)V"), remap = false)
+        "Lmezz/jei/gui/ingredients/IngredientFilter;<init>(Lmezz/jei/gui/filter/IFilterTextSource;Lmezz/jei/common/config/IClientConfig;Lmezz/jei/common/config/IIngredientFilterConfig;Lmezz/jei/api/runtime/IIngredientManager;Ljava/util/function/Function;Ljava/util/List;Lmezz/jei/api/helpers/IModIdHelper;Lmezz/jei/api/runtime/IIngredientVisibility;Lmezz/jei/gui/config/IngredientTypeSortingConfig;Lmezz/jei/api/helpers/IColorHelper;Lmezz/jei/api/search/ISearchStorageBuilderFactory;Lmezz/jei/common/config/IClientToggleState;)V"), remap = false)
     private static void jetoptimizer$gateIngredientFilter(CallbackInfoReturnable<?> callbackInfo) {
         jetoptimizer$gate("ingredient filter construction");
     }
@@ -67,7 +67,7 @@ abstract class JeiGuiStarterMixin {
     }
 
     @Inject(method = "start", at = @At(value = "INVOKE", ordinal = 0, shift = At.Shift.BEFORE, target =
-        "Lmezz/jei/gui/overlay/bookmarks/history/LookupHistory;.<init>(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/runtime/IIngredientManager;Lnet/minecraft/core/RegistryAccess;Lmezz/jei/api/helpers/ICodecHelper;Lnet/mezzdev/config/api/value/IConfigValue;Lmezz/jei/gui/config/ILookupHistoryConfig;Lcom/mojang/serialization/Codec;)V"), remap = false)
+        "Lmezz/jei/gui/overlay/bookmarks/history/LookupHistory;<init>(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/runtime/IIngredientManager;Lnet/minecraft/core/RegistryAccess;Lmezz/jei/api/helpers/ICodecHelper;Lnet/mezzdev/config/api/value/IConfigValue;Lmezz/jei/gui/config/ILookupHistoryConfig;Lcom/mojang/serialization/Codec;)V"), remap = false)
     private static void jetoptimizer$gateLookupHistory(CallbackInfoReturnable<?> callbackInfo) {
         jetoptimizer$gate("lookup history");
     }
@@ -79,13 +79,13 @@ abstract class JeiGuiStarterMixin {
     }
 
     @Inject(method = "start", at = @At(value = "INVOKE", ordinal = 0, shift = At.Shift.BEFORE, target =
-        "Lmezz/jei/gui/bookmarks/BookmarkList;.<init>(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/recipe/IFocusFactory;Lmezz/jei/api/runtime/IIngredientManager;Lnet/minecraft/core/RegistryAccess;Lmezz/jei/gui/config/IBookmarkConfig;Lmezz/jei/common/config/IClientConfig;Lmezz/jei/api/helpers/IGuiHelper;Lmezz/jei/api/helpers/ICodecHelper;Lmezz/jei/gui/bookmarks/BookmarkFactory;Lcom/mojang/serialization/Codec;)V"), remap = false)
+        "Lmezz/jei/gui/bookmarks/BookmarkList;<init>(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/recipe/IFocusFactory;Lmezz/jei/api/runtime/IIngredientManager;Lnet/minecraft/core/RegistryAccess;Lmezz/jei/gui/config/IBookmarkConfig;Lmezz/jei/common/config/IClientConfig;Lmezz/jei/api/helpers/IGuiHelper;Lmezz/jei/api/helpers/ICodecHelper;Lmezz/jei/gui/bookmarks/BookmarkFactory;Lcom/mojang/serialization/Codec;)V"), remap = false)
     private static void jetoptimizer$gateBookmarkList(CallbackInfoReturnable<?> callbackInfo) {
         jetoptimizer$gate("bookmark list");
     }
 
     @Inject(method = "start", at = @At(value = "INVOKE", ordinal = 0, shift = At.Shift.BEFORE, target =
-        "Lmezz/jei/gui/config/IBookmarkConfig;.loadBookmarks(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/recipe/IFocusFactory;Lmezz/jei/api/helpers/IGuiHelper;Lmezz/jei/api/runtime/IIngredientManager;Lnet/minecraft/core/RegistryAccess;Lmezz/jei/gui/bookmarks/BookmarkList;Lmezz/jei/api/helpers/ICodecHelper;Lcom/mojang/serialization/Codec;Lmezz/jei/gui/bookmarks/BookmarkFactory;Lmezz/jei/common/transfer/RecipeTransferService;)V"), remap = false)
+        "Lmezz/jei/gui/config/IBookmarkConfig;loadBookmarks(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/recipe/IFocusFactory;Lmezz/jei/api/helpers/IGuiHelper;Lmezz/jei/api/runtime/IIngredientManager;Lnet/minecraft/core/RegistryAccess;Lmezz/jei/gui/bookmarks/BookmarkList;Lmezz/jei/api/helpers/ICodecHelper;Lcom/mojang/serialization/Codec;Lmezz/jei/gui/bookmarks/BookmarkFactory;Lmezz/jei/common/transfer/RecipeTransferService;)V"), remap = false)
     private static void jetoptimizer$gateBookmarkConfigLoad(CallbackInfoReturnable<?> callbackInfo) {
         jetoptimizer$gate("bookmark config load");
     }
@@ -97,13 +97,13 @@ abstract class JeiGuiStarterMixin {
     }
 
     @Inject(method = "start", at = @At(value = "INVOKE", ordinal = 0, shift = At.Shift.BEFORE, target =
-        "Lmezz/jei/gui/recipes/RecipesGui;.<init>(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/runtime/IIngredientManager;Lmezz/jei/common/transfer/RecipeTransferService;Lmezz/jei/common/input/IInternalKeyMappings;Lmezz/jei/api/recipe/IFocusFactory;Lmezz/jei/gui/bookmarks/BookmarkList;Lmezz/jei/gui/overlay/bookmarks/history/LookupHistory;Lmezz/jei/api/helpers/IGuiHelper;Lmezz/jei/gui/bookmarks/BookmarkFactory;Lmezz/jei/gui/util/FocusUtil;)V"), remap = false)
+        "Lmezz/jei/gui/recipes/RecipesGui;<init>(Lmezz/jei/api/recipe/IRecipeManager;Lmezz/jei/api/runtime/IIngredientManager;Lmezz/jei/common/transfer/RecipeTransferService;Lmezz/jei/common/input/IInternalKeyMappings;Lmezz/jei/api/recipe/IFocusFactory;Lmezz/jei/gui/bookmarks/BookmarkList;Lmezz/jei/gui/overlay/bookmarks/history/LookupHistory;Lmezz/jei/api/helpers/IGuiHelper;Lmezz/jei/gui/bookmarks/BookmarkFactory;Lmezz/jei/gui/util/FocusUtil;)V"), remap = false)
     private static void jetoptimizer$gateRecipesGui(CallbackInfoReturnable<?> callbackInfo) {
         jetoptimizer$gate("recipes gui");
     }
 
     @Inject(method = "start", at = @At(value = "INVOKE", ordinal = 0, shift = At.Shift.BEFORE, target =
-        "Lmezz/jei/gui/input/ClientInputHandler;.<init>(Ljava/util/List;Lmezz/jei/gui/input/handlers/ChatLinkInputHandler;Lmezz/jei/common/input/handlers/UserInputRouter;Lmezz/jei/gui/input/handlers/DragRouter;Lmezz/jei/common/input/IInternalKeyMappings;Lmezz/jei/api/runtime/IScreenHelper;)V"), remap = false)
+        "Lmezz/jei/gui/input/ClientInputHandler;<init>(Ljava/util/List;Lmezz/jei/gui/input/handlers/ChatLinkInputHandler;Lmezz/jei/common/input/handlers/UserInputRouter;Lmezz/jei/gui/input/handlers/DragRouter;Lmezz/jei/common/input/IInternalKeyMappings;Lmezz/jei/api/runtime/IScreenHelper;)V"), remap = false)
     private static void jetoptimizer$gateInputHandlers(CallbackInfoReturnable<?> callbackInfo) {
         jetoptimizer$gate("input handlers and router");
     }

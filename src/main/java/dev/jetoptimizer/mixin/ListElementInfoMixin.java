@@ -9,6 +9,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Set;
@@ -81,7 +82,7 @@ abstract class ListElementInfoMixin<V> {
     private static void jetoptimizer$fastSplitWhitespace(
         Set<String> result,
         String string,
-        CallbackInfoReturnable<Void> callbackInfo
+        CallbackInfo callbackInfo
     ) {
         if (!SearchTextOptimization.enabled() || string == null) {
             return;
