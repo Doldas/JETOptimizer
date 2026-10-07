@@ -18,6 +18,7 @@ java {
 }
 
 repositories {
+    mavenCentral()
     maven("https://maven.blamejared.com") {
         name = "Jared's Maven (JEI)"
     }
@@ -27,6 +28,9 @@ dependencies {
     compileOnly("org.spongepowered:mixin:0.8.7")
     compileOnly("mezz.jei:jei-1.21.1-neoforge:$jeiVersion")
     runtimeOnly("mezz.jei:jei-1.21.1-neoforge:$jeiVersion")
+    testImplementation("mezz.jei:jei-1.21.1-neoforge:$jeiVersion")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 neoForge {

@@ -1,7 +1,11 @@
 package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
+import dev.jetoptimizer.RecipeStartupOptimization;
+import mezz.jei.api.ingredients.IIngredientSupplier;
 import mezz.jei.api.recipe.RecipeIngredientRole;
+import mezz.jei.api.recipe.RecipeType;
+import mezz.jei.library.ingredients.RecipeIngredientSupplier;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
@@ -22,9 +26,20 @@ abstract class RecipeMapMixin {
     @Unique
     private long jetoptimizer$recipeMapStartedAt = Long.MIN_VALUE;
 
-    @Inject(method = "addRecipe", at = @At("HEAD"), remap = false)
-    private void jetoptimizer$beginRecipeMapInsertion(CallbackInfo callbackInfo) {
+    @Inject(method = "addRecipe", at = @At("HEAD"), cancellable = true, remap = false)
+    private <T> void jetoptimizer$beginRecipeMapInsertion(
+            RecipeType<T> recipeType, T recipe, IIngredientSupplier supplier, CallbackInfo callbackInfo
+    ) {
         jetoptimizer$recipeMapStartedAt = JETOptimizerProfiler.beginRecipeMapInsert(role.ordinal());
+        if (RecipeStartupOptimization.fastSuppliers()
+                && supplier.getClass() == RecipeIngredientSupplier.class
+                && supplier.getIngredients(role).isEmpty()) {
+            // No relationships exist for this role. Avoid a temporary IngredientUidIndex and
+            // its maps/lambda, while still counting this invocation in the existing profile.
+            JETOptimizerProfiler.recordEmptyRecipeRole();
+            jetoptimizer$finishRecipeMapInsertion(callbackInfo);
+            callbackInfo.cancel();
+        }
     }
 
     @Inject(method = "addRecipe", at = @At("RETURN"), remap = false)

@@ -345,6 +345,21 @@ public final class JETOptimizerProfiler {
         }
     }
 
+    public static void recordFastRecipeVisibility() {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && session.profiling) session.fastRecipeVisibilityCalls++;
+    }
+
+    public static void recordFastRecipeSupplier() {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && session.profiling) session.fastRecipeSupplierCalls++;
+    }
+
+    public static void recordEmptyRecipeRole() {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && session.profiling) session.emptyRecipeRoleCalls++;
+    }
+
     public static void finishRecipeLayoutBuild() {
         Session session = ACTIVE_SESSION.get();
         if (session != null && !session.recipeLayoutStarts.isEmpty()) {
@@ -869,6 +884,10 @@ public final class JETOptimizerProfiler {
                     .append(session.recipeAddBatches).append('/').append(session.recipeAddRecipeCount).append('\n');
             appendTiming(lines, "    IngredientSupplierHelper category setRecipe", session.recipeLayoutNanos);
             lines.append("      calls: ").append(session.recipeLayoutCalls).append('\n');
+            lines.append("      fast recipe suppliers: ").append(session.fastRecipeSupplierCalls).append('\n');
+            lines.append("      empty recipe-role indexes avoided: ").append(session.emptyRecipeRoleCalls).append('\n');
+            lines.append("      fast unfocused visibility checks (startup-wide): ")
+                    .append(session.fastRecipeVisibilityCalls).append('\n');
             lines.append("      recipe layout builders created/reused: ")
                     .append(session.recipeLayoutBuildersCreated).append('/')
                     .append(session.recipeLayoutBuildersReused).append('\n');
@@ -1342,6 +1361,9 @@ public final class JETOptimizerProfiler {
         private int recipeLayoutCalls;
         private int recipeLayoutBuildersCreated;
         private int recipeLayoutBuildersReused;
+        private int fastRecipeSupplierCalls;
+        private int emptyRecipeRoleCalls;
+        private int fastRecipeVisibilityCalls;
         private final long[] recipeMapIndexNanos = new long[RECIPE_INGREDIENT_ROLE_NAMES.length];
         private final int[] recipeMapInsertCalls = new int[RECIPE_INGREDIENT_ROLE_NAMES.length];
         private int ingredientCount = -1;

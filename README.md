@@ -39,11 +39,17 @@ NeoForge creates `config/jetoptimizer-client.toml` on the client. Current option
 | `skipUnusedKubeJsCategoryMap` | `true` | Skip category-map construction only when no removal listeners exist and KubeJS `remote` is null |
 | `bulkRuntimeRemovalVisibility` | `true` | Batch JEI visibility callbacks for runtime removals when only JEI's internal listeners are present |
 | `reuseRecipeLayoutBuilders` | `true` | Reuse temporary JEI recipe-layout builders during recipe registration; categories must not retain builders after `setRecipe` |
+| `fastUnfocusedRecipeVisibility` | `true` | Early-exit linked-slot visibility checks in the recipe manager for empty focuses; layouts and focused queries keep JEI's full algorithm |
+| `fastRecipeSuppliers` | `true` | Build immutable ingredient snapshots with loops and skip temporary indexes for empty recipe roles |
 | `fastJoinSkipTooltipSearch` | `false` | Skip tooltip-word generation during JEI search-index construction to test a faster join; does not affect displayed hover tooltips |
 
 Profiling and plugin profiling are independent. The reserved reconnect-cache options (`reconnectCache`, `debugCache`, `debugCacheInvalidation`) remain inert. `fastSearchText` is independently switchable; the other experimental optimizations require both master switches and their corresponding option. KubeJS reflection failures and any extra `IIngredientVisibility` listener fall back to the original behavior. Recipe-layout builders are cleared at the end of registration, and on JEI runtime stop, so the pool does not retain an ingredient manager across joins.
 
 ## Build and run
+
+The two new recipe paths require `experimentalOptimizations = true` and automatically fall back on
+JEI versions other than 19.57.0.449. See [recipe/GUI optimization validation](docs/RECIPE_STARTUP_OPTIMIZATIONS.md)
+for the A/B procedure, activation counters and the distinction between measured results and targets.
 
 The Gradle build uses Kotlin DSL, and the mod itself uses Java 21. Gradle's Foojay toolchain resolver provisions a Java 21 toolchain if needed.
 

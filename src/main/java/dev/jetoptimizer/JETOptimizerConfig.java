@@ -18,6 +18,8 @@ public final class JETOptimizerConfig {
     public static final ModConfigSpec.BooleanValue BULK_RUNTIME_REMOVAL_VISIBILITY;
     public static final ModConfigSpec.BooleanValue REUSE_RECIPE_LAYOUT_BUILDERS;
     public static final ModConfigSpec.BooleanValue FAST_JOIN_SKIP_TOOLTIP_SEARCH;
+    public static final ModConfigSpec.BooleanValue FAST_UNFOCUSED_RECIPE_VISIBILITY;
+    public static final ModConfigSpec.BooleanValue FAST_RECIPE_SUPPLIERS;
     public static final ModConfigSpec SPEC;
 
     static {
@@ -30,6 +32,15 @@ public final class JETOptimizerConfig {
         DEBUG_CACHE_INVALIDATION = BUILDER.define("debugCacheInvalidation", false);
         EXPERIMENTAL_OPTIMIZATIONS = BUILDER.define("experimentalOptimizations", false);
         BUILDER.push("optimizations");
+        FAST_UNFOCUSED_RECIPE_VISIBILITY = BUILDER
+                .comment("Checks whether a linked-slot combination exists instead of building all visible indexes.",
+                        "Only unfocused recipe-manager visibility checks use this path; focused queries and layouts use JEI.")
+                .define("fastUnfocusedRecipeVisibility", true);
+        FAST_RECIPE_SUPPLIERS = BUILDER
+                .comment("Builds recipe ingredient snapshots with loops instead of nested per-slot stream pipelines.",
+                        "Also skips temporary recipe-map indexes for empty roles of JEI's immutable suppliers.",
+                        "Preserves recipe order, roles, blank linked entries and immutable snapshot ownership.")
+                .define("fastRecipeSuppliers", true);
         FAST_SEARCH_TEXT = BUILDER
                 .comment(
                         "Replaces the two per-tooltip-line regular expressions JEI uses to build search words",

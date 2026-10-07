@@ -19,6 +19,7 @@ import java.util.Map;
 public final class RecipeLayoutBuilderPool {
     private static final int MAX_POOLED_BUILDERS = 4;
     private static final ThreadLocal<ArrayDeque<PooledBuilder>> BUILDERS = ThreadLocal.withInitial(ArrayDeque::new);
+    private static final ThreadLocal<Boolean> REGISTERING = new ThreadLocal<>();
     private static volatile Boolean cachedEnabled;
 
     private RecipeLayoutBuilderPool() {
@@ -54,6 +55,9 @@ public final class RecipeLayoutBuilderPool {
             Map<?, ? extends List<?>> slotsByRole,
             List<?> focusLinkedSlots
     ) {
+        if (!isReuseEnabled()) {
+            return;
+        }
         try {
             for (List<?> slots : slotsByRole.values()) {
                 slots.clear();
@@ -76,10 +80,19 @@ public final class RecipeLayoutBuilderPool {
      */
     public static void clear() {
         BUILDERS.remove();
+        REGISTERING.remove();
         cachedEnabled = null;
     }
 
+    public static void beginRegistration() {
+        clear();
+        REGISTERING.set(true);
+    }
+
     private static boolean isReuseEnabled() {
+        if (!Boolean.TRUE.equals(REGISTERING.get())) {
+            return false;
+        }
         Boolean enabled = cachedEnabled;
         if (enabled != null) {
             return enabled;
