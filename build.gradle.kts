@@ -56,6 +56,11 @@ neoForge {
             sourceSet(sourceSets.main.get())
         }
     }
+
+    unitTest {
+        enable()
+        testedMod.set(mods.getByName(modId))
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
