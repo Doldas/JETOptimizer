@@ -27,10 +27,10 @@ public final class JETOptimizerConfig {
         ENABLED = BUILDER.define("enabled", true);
         PROFILING = BUILDER.define("profiling", false);
         PLUGIN_PROFILING = BUILDER.define("pluginProfiling", false);
-        RECONNECT_CACHE = BUILDER.define("reconnectCache", false);
+        RECONNECT_CACHE = BUILDER.define("reconnectCache", true);
         DEBUG_CACHE = BUILDER.define("debugCache", false);
         DEBUG_CACHE_INVALIDATION = BUILDER.define("debugCacheInvalidation", false);
-        EXPERIMENTAL_OPTIMIZATIONS = BUILDER.define("experimentalOptimizations", false);
+        EXPERIMENTAL_OPTIMIZATIONS = BUILDER.define("experimentalOptimizations", true);
         BUILDER.push("optimizations");
         FAST_UNFOCUSED_RECIPE_VISIBILITY = BUILDER
                 .comment("Checks whether a linked-slot combination exists instead of building all visible indexes.",
@@ -71,7 +71,7 @@ public final class JETOptimizerConfig {
                         "Fast-join experiment: skips generating tooltip words for JEI's ingredient search index.",
                         "This does not disable displayed hover tooltips, but items will no longer match searches by tooltip text."
                 )
-                .define("fastJoinSkipTooltipSearch", false);
+                .define("fastJoinSkipTooltipSearch", true);
         BUILDER.pop();
         BUILDER.pop();
         SPEC = BUILDER.build();
