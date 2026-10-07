@@ -48,20 +48,24 @@ public final class JETOptimizerProfiler {
     private static final String PHASE_REGISTERING_RECIPES = "Registering recipes";
     private static final String PHASE_SENDING_RUNTIME = "Sending Runtime";
 
-    /** Plugin phases nested inside {@link #STAGE_INGREDIENT_REGISTRATION}. */
+    /**
+     * Plugin phases nested inside {@link #STAGE_INGREDIENT_REGISTRATION}.
+     */
     private static final List<String> INGREDIENT_REGISTRATION_PHASES = List.of(
-        "Registering ingredients",
-        "Registering extra ingredients",
-        "Registering search ingredient aliases"
+            "Registering ingredients",
+            "Registering extra ingredients",
+            "Registering search ingredient aliases"
     );
 
-    /** Plugin phases nested inside the recipe manager stage, in source order. */
+    /**
+     * Plugin phases nested inside the recipe manager stage, in source order.
+     */
     private static final List<String> RECIPE_REGISTRATION_PHASES = List.of(
-        "Registering categories",
-        "Registering vanilla category extensions",
-        "Registering recipe catalysts",
-        "Registering advanced plugins",
-        PHASE_REGISTERING_RECIPES
+            "Registering categories",
+            "Registering vanilla category extensions",
+            "Registering recipe catalysts",
+            "Registering advanced plugins",
+            PHASE_REGISTERING_RECIPES
     );
 
     /**
@@ -69,21 +73,23 @@ public final class JETOptimizerProfiler {
      * top-level stage sum so they are not double counted against the remaining startup budget.
      */
     private static final Set<String> NESTED_FILTER_STAGES = Set.of(
-        "Ingredient list construction",
-        "Ingredient filter construction",
-        STAGE_SEARCH_INDEX,
-        "Ingredient sorting"
+            "Ingredient list construction",
+            "Ingredient filter construction",
+            STAGE_SEARCH_INDEX,
+            "Ingredient sorting"
     );
 
     private static final List<String> RECIPE_MANAGER_STAGES = List.of(
-        "Recipe registry construction",
-        "Advanced recipe-manager plugin wiring",
-        "Recipe map compaction"
+            "Recipe registry construction",
+            "Advanced recipe-manager plugin wiring",
+            "Recipe map compaction"
     );
 
     private static volatile GenerationSnapshot previousGenerationSnapshot;
 
-    /** Optimization report rows, one per profiled connection, kept for the life of the process. */
+    /**
+     * Optimization report rows, one per profiled connection, kept for the life of the process.
+     */
     private static final List<OptimizationRecord> OPTIMIZATION_RECORDS = Collections.synchronizedList(new ArrayList<>());
 
     private static volatile long recipePacketStartedAt;
@@ -132,7 +138,7 @@ public final class JETOptimizerProfiler {
      */
     private static boolean profilingRequested() {
         return JETOptimizerConfig.ENABLED.get()
-            && (JETOptimizerConfig.PROFILING.get() || JETOptimizerConfig.PLUGIN_PROFILING.get());
+                && (JETOptimizerConfig.PROFILING.get() || JETOptimizerConfig.PLUGIN_PROFILING.get());
     }
 
     public static void beginJeiStartup() {
@@ -143,10 +149,10 @@ public final class JETOptimizerProfiler {
         PendingRecipeSync sync = pendingRecipeSync;
         pendingRecipeSync = null;
         Session session = new Session(
-            System.nanoTime(),
-            sync,
-            JETOptimizerConfig.PROFILING.get(),
-            JETOptimizerConfig.PLUGIN_PROFILING.get()
+                System.nanoTime(),
+                sync,
+                JETOptimizerConfig.PROFILING.get(),
+                JETOptimizerConfig.PLUGIN_PROFILING.get()
         );
         session.generation = Math.max(1, CONNECTION_GENERATION.get());
         session.startedAtEpochMillis = System.currentTimeMillis();
@@ -193,9 +199,9 @@ public final class JETOptimizerProfiler {
                 return INTEGRATED_TARGET;
             }
             return Optional.ofNullable(minecraft.getCurrentServer())
-                .map(serverData -> serverData.ip)
-                .filter(ip -> !ip.isBlank())
-                .orElse(UNKNOWN_TARGET);
+                    .map(serverData -> serverData.ip)
+                    .filter(ip -> !ip.isBlank())
+                    .orElse(UNKNOWN_TARGET);
         } catch (RuntimeException | LinkageError e) {
             return UNKNOWN_TARGET;
         }
@@ -301,10 +307,10 @@ public final class JETOptimizerProfiler {
     public static long beginRecipeMapInsert(int roleOrdinal) {
         Session session = ACTIVE_SESSION.get();
         if (session == null
-            || !session.profiling
-            || !session.registeringRecipes
-            || roleOrdinal < 0
-            || roleOrdinal >= RECIPE_INGREDIENT_ROLE_NAMES.length) {
+                || !session.profiling
+                || !session.registeringRecipes
+                || roleOrdinal < 0
+                || roleOrdinal >= RECIPE_INGREDIENT_ROLE_NAMES.length) {
             return Long.MIN_VALUE;
         }
         return System.nanoTime();
@@ -325,6 +331,17 @@ public final class JETOptimizerProfiler {
         Session session = ACTIVE_SESSION.get();
         if (session != null && session.profiling && session.registeringRecipes) {
             session.recipeLayoutStarts.push(System.nanoTime());
+        }
+    }
+
+    public static void recordRecipeLayoutBuilderAcquisition(boolean reused) {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && session.profiling) {
+            if (reused) {
+                session.recipeLayoutBuildersReused++;
+            } else {
+                session.recipeLayoutBuildersCreated++;
+            }
         }
     }
 
@@ -388,13 +405,13 @@ public final class JETOptimizerProfiler {
     }
 
     public static void recordRuntimeRemovalVisibilityBatch(
-        int requestedIngredients,
-        int individualNotifications,
-        int singleDispatches,
-        int batchedIngredients,
-        int batchedDispatches,
-        boolean listenersCompatible,
-        long elapsedNanos
+            int requestedIngredients,
+            int individualNotifications,
+            int singleDispatches,
+            int batchedIngredients,
+            int batchedDispatches,
+            boolean listenersCompatible,
+            long elapsedNanos
     ) {
         Session session = ACTIVE_SESSION.get();
         if (session == null || !session.profiling) {
@@ -474,6 +491,13 @@ public final class JETOptimizerProfiler {
         }
         session.tooltipStartedAt = System.nanoTime();
         session.tooltipTypeUid = ingredientTypeUid;
+    }
+
+    public static void recordTooltipSearchSkipped() {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && session.profiling) {
+            session.tooltipSearchSkipped++;
+        }
     }
 
     public static void finishTooltipStringSource() {
@@ -565,7 +589,9 @@ public final class JETOptimizerProfiler {
         }
     }
 
-    /** Records that a fast path handed control back to JEI's original implementation. */
+    /**
+     * Records that a fast path handed control back to JEI's original implementation.
+     */
     public static void recordOptimizationFallback(String optimization) {
         Session session = ACTIVE_SESSION.get();
         if (session == null) {
@@ -586,24 +612,26 @@ public final class JETOptimizerProfiler {
         session.guiRuntimeGates.merge(label, nanos, Long::sum);
     }
 
-    /** Records the one-callback, generation-local KubeJS remote item removal candidate index. */
+    /**
+     * Records the one-callback, generation-local KubeJS remote item removal candidate index.
+     */
     public static void recordKubeJSItemRemovalIndex(
-        boolean enabled,
-        int filterCount,
-        int patternCount,
-        int sourceEntries,
-        int filterItemRegistryIds,
-        int candidateEntries,
-        int candidateLoopExpected,
-        int candidateLoopEntries,
-        int predicateTestsBypassed,
-        int originalPredicateTests,
-        int fullScanFallbacks,
-        int fallbackFilters,
-        int managerRemovalRequestEntries,
-        int indexBuilds,
-        int leafItemValues,
-        long indexNanos
+            boolean enabled,
+            int filterCount,
+            int patternCount,
+            int sourceEntries,
+            int filterItemRegistryIds,
+            int candidateEntries,
+            int candidateLoopExpected,
+            int candidateLoopEntries,
+            int predicateTestsBypassed,
+            int originalPredicateTests,
+            int fullScanFallbacks,
+            int fallbackFilters,
+            int managerRemovalRequestEntries,
+            int indexBuilds,
+            int leafItemValues,
+            long indexNanos
     ) {
         Session session = ACTIVE_SESSION.get();
         if (session == null || !session.profiling) {
@@ -629,7 +657,9 @@ public final class JETOptimizerProfiler {
         session.kubeJsItemRemovalIndexNanos += indexNanos;
     }
 
-    /** Stores the checkpoint report built inside KubeJSJEIPlugin.onRuntimeAvailable for this generation. */
+    /**
+     * Stores the checkpoint report built inside KubeJSJEIPlugin.onRuntimeAvailable for this generation.
+     */
     public static void recordKubeJSCallbackPhases(String report) {
         Session session = ACTIVE_SESSION.get();
         if (session == null || !session.profiling || report == null || report.isEmpty()) {
@@ -663,25 +693,25 @@ public final class JETOptimizerProfiler {
         }
 
         session.stageNanos.entrySet().stream()
-            .sorted(Map.Entry.comparingByKey())
-            .forEach(entry -> appendTiming(lines, entry.getKey(), entry.getValue()));
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> appendTiming(lines, entry.getKey(), entry.getValue()));
         long topLevelStagesNanos = session.stageNanos.entrySet().stream()
-            .filter(entry -> !NESTED_FILTER_STAGES.contains(entry.getKey()))
-            .mapToLong(Map.Entry::getValue)
-            .sum();
+                .filter(entry -> !NESTED_FILTER_STAGES.contains(entry.getKey()))
+                .mapToLong(Map.Entry::getValue)
+                .sum();
         long topLevelPluginNanos = sumValues(session.topLevelPluginPhaseNanos);
         appendTopLevelPluginPhases(lines, session);
         appendTiming(
-            lines,
-            "Other (unattributed)",
-            Math.max(0L, totalNanos - topLevelStagesNanos - topLevelPluginNanos)
+                lines,
+                "Other (unattributed)",
+                Math.max(0L, totalNanos - topLevelStagesNanos - topLevelPluginNanos)
         );
         appendTiming(lines, "Total JEI start", totalNanos);
         lines.append("Ingredient count (final raw manager): ").append(formatCount(session.ingredientCount)).append('\n');
         appendIngredientCountAnalysis(lines, session);
         lines.append("Recipe category count: ")
-            .append(formatCount(session.recipeCategoryCount))
-            .append('\n');
+                .append(formatCount(session.recipeCategoryCount))
+                .append('\n');
         if (session.pluginProfiling) {
             lines.append("Plugin UIDs observed: ").append(session.pluginUids.size()).append('\n');
         }
@@ -699,15 +729,15 @@ public final class JETOptimizerProfiler {
 
     private static void appendConnectionIdentity(StringBuilder lines, Session session) {
         lines.append("Connection generation: ").append(session.generation)
-            .append(" (").append(describeJoinKind(session)).append(')')
-            .append('\n');
+                .append(" (").append(describeJoinKind(session)).append(')')
+                .append('\n');
         Optional.ofNullable(session.previousSnapshot).ifPresentOrElse(previous -> {
             lines.append("Server address: ").append(session.serverAddress)
-                .append(previous.serverAddress().equals(session.serverAddress) ? " (unchanged)" : " (CHANGED)")
-                .append('\n');
+                    .append(previous.serverAddress().equals(session.serverAddress) ? " (unchanged)" : " (CHANGED)")
+                    .append('\n');
             long gapSeconds = Math.max(0L, session.startedAtEpochMillis - previous.startedAtEpochMillis()) / 1000L;
             lines.append("Previous connection in this process: generation ").append(previous.generation())
-                .append(", ").append(gapSeconds).append(" s earlier\n");
+                    .append(", ").append(gapSeconds).append(" s earlier\n");
         }, () -> lines.append("Server address: ").append(session.serverAddress).append('\n'));
     }
 
@@ -733,45 +763,45 @@ public final class JETOptimizerProfiler {
         Optional.ofNullable(session.previousSnapshot).ifPresentOrElse(previous -> {
             Map<String, Long> current = session.structuralValues();
             List<StructuralDifference> differences = previous.values().entrySet().stream()
-                .filter(entry -> current.containsKey(entry.getKey()))
-                .map(entry -> {
-                    Long after = current.get(entry.getKey());
-                    return new StructuralDifference(entry.getKey(), entry.getValue(), after, !after.equals(entry.getValue()));
-                })
-                .toList();
+                    .filter(entry -> current.containsKey(entry.getKey()))
+                    .map(entry -> {
+                        Long after = current.get(entry.getKey());
+                        return new StructuralDifference(entry.getKey(), entry.getValue(), after, !after.equals(entry.getValue()));
+                    })
+                    .toList();
             long changed = differences.stream().filter(StructuralDifference::changed).count();
             lines.append("Structural comparison vs generation ").append(previous.generation())
-                .append(": ").append(changed).append(" of ").append(differences.size())
-                .append(" comparable fields differ\n");
+                    .append(": ").append(changed).append(" of ").append(differences.size())
+                    .append(" comparable fields differ\n");
             if (changed > 0L) {
                 differences.forEach(difference -> lines.append("    ")
-                    .append(difference.changed() ? "CHANGED  " : "unchanged")
-                    .append(' ').append(difference.key()).append(": ")
-                    .append(difference.changed()
-                        ? difference.before() + " -> " + difference.after()
-                        : String.valueOf(difference.after()))
-                    .append('\n'));
+                        .append(difference.changed() ? "CHANGED  " : "unchanged")
+                        .append(' ').append(difference.key()).append(": ")
+                        .append(difference.changed()
+                                ? difference.before() + " -> " + difference.after()
+                                : String.valueOf(difference.after()))
+                        .append('\n'));
             }
         }, () -> lines.append("Structural comparison vs previous connection: unavailable (first connection profiled in this process)\n"));
     }
 
     private static void appendIngredientCountAnalysis(StringBuilder lines, Session session) {
         lines.append("Ingredient manager at GUI list build (raw/typed): ")
-            .append(formatCount(session.managerRawAtGuiBuild)).append('/')
-            .append(formatCount(session.managerTypedAtGuiBuild)).append('\n');
+                .append(formatCount(session.managerRawAtGuiBuild)).append('/')
+                .append(formatCount(session.managerTypedAtGuiBuild)).append('\n');
         lines.append("IngredientFilter base-list entries: ")
-            .append(formatCount(session.filterEntriesAtGuiBuild)).append('\n');
+                .append(formatCount(session.filterEntriesAtGuiBuild)).append('\n');
         lines.append("Ingredient manager after onRuntimeAvailable (raw/typed): ")
-            .append(formatCount(session.finalManagerRaw)).append('/')
-            .append(formatCount(session.finalManagerTyped)).append('\n');
+                .append(formatCount(session.finalManagerRaw)).append('/')
+                .append(formatCount(session.finalManagerTyped)).append('\n');
         if (session.managerRawAtGuiBuild >= 0 && session.finalManagerRaw >= 0) {
             lines.append("Ingredient manager raw delta during JEI start: ")
-                .append(session.finalManagerRaw - session.managerRawAtGuiBuild).append('\n');
+                    .append(session.finalManagerRaw - session.managerRawAtGuiBuild).append('\n');
         }
         lines.append("Runtime ingredient add requests/calls: ").append(session.runtimeIngredientAddRequests)
-            .append('/').append(session.runtimeIngredientAddCalls).append('\n');
+                .append('/').append(session.runtimeIngredientAddCalls).append('\n');
         lines.append("Runtime ingredient remove requests/calls: ").append(session.runtimeIngredientRemoveRequests)
-            .append('/').append(session.runtimeIngredientRemoveCalls).append('\n');
+                .append('/').append(session.runtimeIngredientRemoveCalls).append('\n');
     }
 
     private static String formatCount(int count) {
@@ -792,23 +822,23 @@ public final class JETOptimizerProfiler {
         }
         lines.append("Top-level plugin phases (outside every measured stage):\n");
         session.topLevelPluginPhaseNanos.entrySet().stream()
-            .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-            .forEach(entry -> appendTiming(lines, "  " + entry.getKey(), entry.getValue()));
+                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                .forEach(entry -> appendTiming(lines, "  " + entry.getKey(), entry.getValue()));
     }
 
     private static void appendSlowestPluginCallbacks(
-        StringBuilder lines,
-        Session session,
-        String phase,
-        int limit,
-        String header,
-        String indent
+            StringBuilder lines,
+            Session session,
+            String phase,
+            int limit,
+            String header,
+            String indent
     ) {
         List<Map.Entry<PluginCallbackKey, Long>> slowest = session.pluginNanosByPhase.entrySet().stream()
-            .filter(entry -> phase.equals(entry.getKey().phase()))
-            .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-            .limit(limit)
-            .toList();
+                .filter(entry -> phase.equals(entry.getKey().phase()))
+                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                .limit(limit)
+                .toList();
         if (slowest.isEmpty()) {
             return;
         }
@@ -836,9 +866,12 @@ public final class JETOptimizerProfiler {
             appendTiming(lines, "  RecipeManagerInternal.addRecipes (nested)", session.recipeAddNanos);
             measured += recipeCallbacksWithoutAdd + session.recipeAddNanos;
             lines.append("  Recipe addRecipes batches/recipes: ")
-                .append(session.recipeAddBatches).append('/').append(session.recipeAddRecipeCount).append('\n');
+                    .append(session.recipeAddBatches).append('/').append(session.recipeAddRecipeCount).append('\n');
             appendTiming(lines, "    IngredientSupplierHelper category setRecipe", session.recipeLayoutNanos);
             lines.append("      calls: ").append(session.recipeLayoutCalls).append('\n');
+            lines.append("      recipe layout builders created/reused: ")
+                    .append(session.recipeLayoutBuildersCreated).append('/')
+                    .append(session.recipeLayoutBuildersReused).append('\n');
             long recipeMapNanos = 0L;
             for (int role = 0; role < RECIPE_INGREDIENT_ROLE_NAMES.length; role++) {
                 recipeMapNanos += session.recipeMapIndexNanos[role];
@@ -846,9 +879,9 @@ public final class JETOptimizerProfiler {
                 lines.append("      calls: ").append(session.recipeMapInsertCalls[role]).append('\n');
             }
             appendTiming(
-                lines,
-                "    Other addRecipes work",
-                Math.max(0L, session.recipeAddNanos - session.recipeLayoutNanos - recipeMapNanos)
+                    lines,
+                    "    Other addRecipes work",
+                    Math.max(0L, session.recipeAddNanos - session.recipeLayoutNanos - recipeMapNanos)
             );
         }
 
@@ -859,12 +892,12 @@ public final class JETOptimizerProfiler {
         }
         appendTiming(lines, "  Other recipe-manager internals", Math.max(0L, recipeStage - measured));
         appendSlowestPluginCallbacks(
-            lines,
-            session,
-            PHASE_REGISTERING_RECIPES,
-            10,
-            "  Slowest registerRecipes plugin callbacks (nested, top 10)",
-            "    "
+                lines,
+                session,
+                PHASE_REGISTERING_RECIPES,
+                10,
+                "  Slowest registerRecipes plugin callbacks (nested, top 10)",
+                "    "
         );
     }
 
@@ -898,19 +931,19 @@ public final class JETOptimizerProfiler {
             return;
         }
         long attributed = session.pluginNanosByPhase.entrySet().stream()
-            .filter(entry -> PHASE_SENDING_RUNTIME.equals(entry.getKey().phase()))
-            .mapToLong(Map.Entry::getValue)
-            .sum();
+                .filter(entry -> PHASE_SENDING_RUNTIME.equals(entry.getKey().phase()))
+                .mapToLong(Map.Entry::getValue)
+                .sum();
         lines.append("Sending Runtime detail (outside every measured stage):\n");
         appendTiming(lines, "  onRuntimeAvailable across plugins", elapsed);
         appendTiming(lines, "  Plugin callback time not attributed", Math.max(0L, elapsed - attributed));
         appendSlowestPluginCallbacks(
-            lines,
-            session,
-            PHASE_SENDING_RUNTIME,
-            10,
-            "  Slowest onRuntimeAvailable callbacks (top 10)",
-            "    "
+                lines,
+                session,
+                PHASE_SENDING_RUNTIME,
+                10,
+                "  Slowest onRuntimeAvailable callbacks (top 10)",
+                "    "
         );
     }
 
@@ -921,21 +954,21 @@ public final class JETOptimizerProfiler {
         lines.append("KubeJS remote item-removal ID index (inside onRuntimeAvailable):\n");
         lines.append("  optimization: ").append(session.kubeJsItemRemovalEnabled ? "enabled" : "disabled").append('\n');
         lines.append("  filter trees/pattern entries: ").append(session.kubeJsItemRemovalFilterCount).append('/')
-            .append(session.kubeJsItemRemovalPatternCount).append('\n');
+                .append(session.kubeJsItemRemovalPatternCount).append('\n');
         lines.append("  leaf candidate stacks/item registry IDs: ").append(session.kubeJsItemRemovalLeafItemValues).append('/')
-            .append(session.kubeJsItemRemovalFilterItemRegistryIds).append('\n');
+                .append(session.kubeJsItemRemovalFilterItemRegistryIds).append('\n');
         lines.append("  source entries/candidate dense IDs: ").append(session.kubeJsItemRemovalSourceEntries).append('/')
-            .append(session.kubeJsItemRemovalCandidateEntries).append('\n');
+                .append(session.kubeJsItemRemovalCandidateEntries).append('\n');
         lines.append("  KubeJS loop entries expected/observed: ").append(session.kubeJsItemRemovalCandidateLoopExpected).append('/')
-            .append(session.kubeJsItemRemovalCandidateLoopEntries).append('\n');
+                .append(session.kubeJsItemRemovalCandidateLoopEntries).append('\n');
         lines.append("  Ingredient.test calls bypassed/original fallback: ")
-            .append(session.kubeJsItemRemovalPredicateTestsBypassed).append('/')
-            .append(session.kubeJsItemRemovalOriginalPredicateTests).append('\n');
+                .append(session.kubeJsItemRemovalPredicateTestsBypassed).append('/')
+                .append(session.kubeJsItemRemovalOriginalPredicateTests).append('\n');
         lines.append("  manager removal request entries: ").append(session.kubeJsItemRemovalRequestEntries).append('\n');
         lines.append("  index builds/fallback filters/full-scan fallbacks: ")
-            .append(session.kubeJsItemRemovalIndexBuilds).append('/')
-            .append(session.kubeJsItemRemovalFallbackFilters).append('/')
-            .append(session.kubeJsItemRemovalFullScanFallbacks).append('\n');
+                .append(session.kubeJsItemRemovalIndexBuilds).append('/')
+                .append(session.kubeJsItemRemovalFallbackFilters).append('/')
+                .append(session.kubeJsItemRemovalFullScanFallbacks).append('\n');
         appendTiming(lines, "  dense-ID candidate-index construction", session.kubeJsItemRemovalIndexNanos);
     }
 
@@ -957,8 +990,8 @@ public final class JETOptimizerProfiler {
         int bakeCalls = 0;
         long keyEntries = 0L;
         for (Map.Entry<String, SearchPrefixMetrics> entry : session.searchPrefixMetrics.entrySet().stream()
-            .sorted(Map.Entry.comparingByKey())
-            .toList()) {
+                .sorted(Map.Entry.comparingByKey())
+                .toList()) {
             SearchPrefixMetrics metrics = entry.getValue();
             sourceNanos += metrics.stringSourceNanos;
             bakeNanos += metrics.bakedBuildNanos;
@@ -966,14 +999,19 @@ public final class JETOptimizerProfiler {
             keyEntries += metrics.bakedKeyEntries;
             appendTiming(lines, "  source strings: " + entry.getKey(), metrics.stringSourceNanos);
             lines.append("    getter calls/candidate strings: ").append(metrics.getterCalls).append('/')
-                .append(metrics.returnedStringCandidates).append('\n');
+                    .append(metrics.returnedStringCandidates).append('\n');
             lines.append("    baked builds/index key entries: ").append(metrics.bakedBuildCalls).append('/')
-                .append(metrics.bakedKeyEntries).append('\n');
+                    .append(metrics.bakedKeyEntries).append('\n');
         }
         appendTiming(lines, "  Baked substring gram-index builds", bakeNanos);
         lines.append("  Baked index build calls/key entries: ").append(bakeCalls).append('/').append(keyEntries).append('\n');
         appendTiming(lines, "  Other search-index work", Math.max(0L, searchStage - sourceNanos - bakeNanos));
         appendTooltipStringsByType(lines, session);
+        if (session.tooltipSearchSkipped > 0) {
+            lines.append("  fast-join tooltip search: skipped tooltip rendering for ")
+                    .append(session.tooltipSearchSkipped)
+                    .append(" ingredients; displayed hover tooltips remain unchanged\n");
+        }
         appendSearchTextOptimization(lines, session);
     }
 
@@ -989,14 +1027,14 @@ public final class JETOptimizerProfiler {
         long stage = session.stageNanos.getOrDefault(STAGE_GUI_RUNTIME, 0L);
         long gates = sumValues(session.guiRuntimeGates);
         lines.append("GUI runtime construction, gated blocks (sum ").append(formatSeconds(gates)).append(
-            " of ").append(formatSeconds(stage)).append(", ").append(session.guiRuntimeGates.size())
-            .append(" gates):\n");
+                        " of ").append(formatSeconds(stage)).append(", ").append(session.guiRuntimeGates.size())
+                .append(" gates):\n");
         session.guiRuntimeGates.entrySet().stream()
-            .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-            .forEach(entry -> lines.append("    ").append(entry.getKey()).append(": ")
-                .append(formatSeconds(entry.getValue())).append('\n'));
+                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                .forEach(entry -> lines.append("    ").append(entry.getKey()).append(": ")
+                        .append(formatSeconds(entry.getValue())).append('\n'));
         appendTiming(lines, "  GUI runtime construction not covered by a gate",
-            Math.max(0L, stage - gates));
+                Math.max(0L, stage - gates));
     }
 
     /**
@@ -1005,21 +1043,21 @@ public final class JETOptimizerProfiler {
      */
     private static void appendSearchTextOptimization(StringBuilder lines, Session session) {
         lines.append("  Search-text pipeline (pure work inside getStrings): ")
-            .append(formatSeconds(session.searchTextPipelineNanos))
-            .append(" over ").append(session.searchTextPipelineCalls).append(" calls\n");
+                .append(formatSeconds(session.searchTextPipelineNanos))
+                .append(" over ").append(session.searchTextPipelineCalls).append(" calls\n");
         lines.append("    fast chat-format stripping: ")
-            .append(formatSeconds(session.fastStripNanos))
-            .append(" over ").append(session.fastStripCalls).append(" calls (")
-            .append(session.fastStripApplied).append(" applied)\n");
+                .append(formatSeconds(session.fastStripNanos))
+                .append(" over ").append(session.fastStripCalls).append(" calls (")
+                .append(session.fastStripApplied).append(" applied)\n");
         lines.append("    fast whitespace splitting: ")
-            .append(formatSeconds(session.fastSplitNanos))
-            .append(" over ").append(session.fastSplitCalls).append(" calls (")
-            .append(session.fastSplitApplied).append(" applied)\n");
+                .append(formatSeconds(session.fastSplitNanos))
+                .append(" over ").append(session.fastSplitCalls).append(" calls (")
+                .append(session.fastSplitApplied).append(" applied)\n");
         appendTiming(lines, "    pipeline work outside fast paths", Math.max(0L,
-            session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos));
+                session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos));
         if (!session.optimizationFallbacks.isEmpty()) {
             lines.append("    fallbacks to JEI implementation: ")
-                .append(session.optimizationFallbacks).append('\n');
+                    .append(session.optimizationFallbacks).append('\n');
         }
     }
 
@@ -1029,11 +1067,11 @@ public final class JETOptimizerProfiler {
         }
         lines.append("  Tooltip search strings by ingredient type (top 6, time/calls):\n");
         session.tooltipNanosByType.entrySet().stream()
-            .sorted(Comparator.<Map.Entry<String, long[]>>comparingLong(entry -> entry.getValue()[0]).reversed())
-            .limit(6)
-            .forEach(entry -> lines.append("    ").append(entry.getKey()).append(": ")
-                .append(formatSeconds(entry.getValue()[0]))
-                .append('/').append(entry.getValue()[1]).append('\n'));
+                .sorted(Comparator.<Map.Entry<String, long[]>>comparingLong(entry -> entry.getValue()[0]).reversed())
+                .limit(6)
+                .forEach(entry -> lines.append("    ").append(entry.getKey()).append(": ")
+                        .append(formatSeconds(entry.getValue()[0]))
+                        .append('/').append(entry.getValue()[1]).append('\n'));
     }
 
     /**
@@ -1046,79 +1084,79 @@ public final class JETOptimizerProfiler {
      */
     private static void logOptimizationReport(Session session, long totalNanos) {
         long pipelineOutsideFastPathsNanos = Math.max(0L,
-            session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos);
+                session.searchTextPipelineNanos - session.fastStripNanos - session.fastSplitNanos);
         OPTIMIZATION_RECORDS.add(new OptimizationRecord(
-            session.generation,
-            describeJoinKind(session),
-            session.serverAddress,
-            totalNanos,
-            session.stageNanos.getOrDefault(STAGE_SEARCH_INDEX, 0L),
-            tooltipSearchNanos(session),
-            session.stageNanos.getOrDefault(STAGE_INGREDIENT_REGISTRATION, 0L),
-            session.pluginPhaseNanos.getOrDefault(PHASE_REGISTERING_RECIPES, 0L),
-            session.pluginNanosByPhase.getOrDefault(new PluginCallbackKey(PHASE_SENDING_RUNTIME, "kubejs:jei"), 0L),
-            SearchTextOptimization.enabled(),
-            session.searchTextPipelineNanos,
-            session.searchTextPipelineCalls,
-            session.fastStripNanos,
-            session.fastStripCalls,
-            session.fastSplitNanos,
-            session.fastSplitCalls,
-            pipelineOutsideFastPathsNanos,
-            session.kubeJsItemRemovalObserved,
-            session.kubeJsItemRemovalEnabled,
-            session.kubeJsItemRemovalIndexNanos,
-            session.kubeJsItemRemovalSourceEntries,
-            session.kubeJsItemRemovalCandidateEntries,
-            session.kubeJsItemRemovalCandidateLoopEntries,
-            session.kubeJsItemRemovalPredicateTestsBypassed,
-            session.kubeJsItemRemovalOriginalPredicateTests,
-            session.kubeJsItemRemovalRequestEntries,
-            session.kubeJsItemRemovalFallbackFilters + session.kubeJsItemRemovalFullScanFallbacks,
-            Map.copyOf(session.optimizationFallbacks),
-            runtimeRemovalVisibilitySummary(session),
-            structuralChangeSummary(session)
+                session.generation,
+                describeJoinKind(session),
+                session.serverAddress,
+                totalNanos,
+                session.stageNanos.getOrDefault(STAGE_SEARCH_INDEX, 0L),
+                tooltipSearchNanos(session),
+                session.stageNanos.getOrDefault(STAGE_INGREDIENT_REGISTRATION, 0L),
+                session.pluginPhaseNanos.getOrDefault(PHASE_REGISTERING_RECIPES, 0L),
+                session.pluginNanosByPhase.getOrDefault(new PluginCallbackKey(PHASE_SENDING_RUNTIME, "kubejs:jei"), 0L),
+                SearchTextOptimization.enabled(),
+                session.searchTextPipelineNanos,
+                session.searchTextPipelineCalls,
+                session.fastStripNanos,
+                session.fastStripCalls,
+                session.fastSplitNanos,
+                session.fastSplitCalls,
+                pipelineOutsideFastPathsNanos,
+                session.kubeJsItemRemovalObserved,
+                session.kubeJsItemRemovalEnabled,
+                session.kubeJsItemRemovalIndexNanos,
+                session.kubeJsItemRemovalSourceEntries,
+                session.kubeJsItemRemovalCandidateEntries,
+                session.kubeJsItemRemovalCandidateLoopEntries,
+                session.kubeJsItemRemovalPredicateTestsBypassed,
+                session.kubeJsItemRemovalOriginalPredicateTests,
+                session.kubeJsItemRemovalRequestEntries,
+                session.kubeJsItemRemovalFallbackFilters + session.kubeJsItemRemovalFullScanFallbacks,
+                Map.copyOf(session.optimizationFallbacks),
+                runtimeRemovalVisibilitySummary(session),
+                structuralChangeSummary(session)
         ));
 
         StringBuilder lines = new StringBuilder("[JETOptimizer] === OPTIMIZATION REPORT ===\n");
         lines.append("Connection generations profiled in this process: ")
-            .append(OPTIMIZATION_RECORDS.size()).append('\n');
+                .append(OPTIMIZATION_RECORDS.size()).append('\n');
         for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
             lines.append("  Generation ").append(record.generation()).append(" (")
-                .append(record.joinKind()).append(", ").append(record.serverAddress()).append(")\n");
+                    .append(record.joinKind()).append(", ").append(record.serverAddress()).append(")\n");
             appendTiming(lines, "    total JEI start", record.totalNanos());
             lines.append("    fast search-text path: ")
-                .append(record.fastSearchText() ? "enabled" : "disabled (JEI implementation used)")
-                .append('\n');
+                    .append(record.fastSearchText() ? "enabled" : "disabled (JEI implementation used)")
+                    .append('\n');
             appendTiming(lines, "    pure search-text pipeline", record.pipelineNanos());
             lines.append("      pipeline calls: ").append(record.pipelineCalls()).append('\n');
             appendTiming(lines, "      fast chat-format stripping", record.stripNanos());
             appendTiming(lines, "      fast whitespace splitting", record.splitNanos());
             appendTiming(lines, "      pipeline work outside fast paths", record.pipelineOutsideFastPathsNanos());
             lines.append("      strip calls/split calls: ")
-                .append(record.stripCalls()).append('/').append(record.splitCalls()).append('\n');
+                    .append(record.stripCalls()).append('/').append(record.splitCalls()).append('\n');
             if (record.kubeJsItemRemovalObserved()) {
                 lines.append("    KubeJS item-removal ID index: ")
-                    .append(record.kubeJsItemRemovalEnabled() ? "enabled" : "disabled")
-                    .append("; source/candidates ")
-                    .append(record.kubeJsItemRemovalSourceEntries()).append('/')
-                    .append(record.kubeJsItemRemovalCandidateEntries())
-                    .append("; loop entries ").append(record.kubeJsItemRemovalCandidateLoopEntries())
-                    .append("; predicate tests bypassed/original ")
-                    .append(record.kubeJsItemRemovalPredicateTestsBypassed()).append('/')
-                    .append(record.kubeJsItemRemovalOriginalPredicateTests())
-                    .append("; manager removal request ").append(record.kubeJsItemRemovalRequestEntries())
-                    .append("; fallbacks ").append(record.kubeJsItemRemovalFallbacks()).append('\n');
+                        .append(record.kubeJsItemRemovalEnabled() ? "enabled" : "disabled")
+                        .append("; source/candidates ")
+                        .append(record.kubeJsItemRemovalSourceEntries()).append('/')
+                        .append(record.kubeJsItemRemovalCandidateEntries())
+                        .append("; loop entries ").append(record.kubeJsItemRemovalCandidateLoopEntries())
+                        .append("; predicate tests bypassed/original ")
+                        .append(record.kubeJsItemRemovalPredicateTestsBypassed()).append('/')
+                        .append(record.kubeJsItemRemovalOriginalPredicateTests())
+                        .append("; manager removal request ").append(record.kubeJsItemRemovalRequestEntries())
+                        .append("; fallbacks ").append(record.kubeJsItemRemovalFallbacks()).append('\n');
                 appendTiming(lines, "      KubeJS dense-ID index construction", record.kubeJsItemRemovalIndexNanos());
             } else {
                 lines.append("    KubeJS item-removal ID index: unavailable (callback not observed)\n");
             }
             lines.append("    runtime removal visibility batching: ")
-                .append(record.runtimeRemovalVisibilitySummary()).append('\n');
+                    .append(record.runtimeRemovalVisibilitySummary()).append('\n');
             lines.append("    fallbacks to JEI implementation: ")
-                .append(record.fallbacks().isEmpty() ? "none" : record.fallbacks()).append('\n');
+                    .append(record.fallbacks().isEmpty() ? "none" : record.fallbacks()).append('\n');
             lines.append("    structural correctness vs previous generation: ")
-                .append(record.structuralChangeSummary()).append('\n');
+                    .append(record.structuralChangeSummary()).append('\n');
         }
         appendColdReconnectComparison(lines);
         JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
@@ -1136,8 +1174,8 @@ public final class JETOptimizerProfiler {
         OptimizationRecord cold = null;
         for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
             if ("first join in this process".equals(record.joinKind())
-                && !INTEGRATED_TARGET.equals(record.serverAddress())
-                && !UNKNOWN_TARGET.equals(record.serverAddress())) {
+                    && !INTEGRATED_TARGET.equals(record.serverAddress())
+                    && !UNKNOWN_TARGET.equals(record.serverAddress())) {
                 cold = record;
                 break;
             }
@@ -1146,7 +1184,7 @@ public final class JETOptimizerProfiler {
         if (cold != null) {
             for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
                 if ("in-game reconnect to a remote server".equals(record.joinKind())
-                    && cold.serverAddress().equals(record.serverAddress())) {
+                        && cold.serverAddress().equals(record.serverAddress())) {
                     reconnect = record;
                 }
             }
@@ -1168,32 +1206,32 @@ public final class JETOptimizerProfiler {
 
     private static void appendComparisonRow(StringBuilder lines, String label, long coldNanos, long reconnectNanos) {
         lines.append(String.format(Locale.ROOT, "  %-22s %10.3f %10.3f%n", label,
-            coldNanos / 1_000_000_000.0, reconnectNanos / 1_000_000_000.0));
+                coldNanos / 1_000_000_000.0, reconnectNanos / 1_000_000_000.0));
     }
 
     private static String runtimeRemovalVisibilitySummary(Session session) {
         String lifecycle = "; filter base entries " + session.filterEntriesAtGuiBuild
-            + "; removal requests/effective index removals " + session.runtimeIngredientRemoveRequests
-            + "/" + session.runtimeIngredientRemovedEntries
-            + "; final manager entries " + session.finalManagerRaw;
+                + "; removal requests/effective index removals " + session.runtimeIngredientRemoveRequests
+                + "/" + session.runtimeIngredientRemovedEntries
+                + "; final manager entries " + session.finalManagerRaw;
         if (session.runtimeRemovalVisibilityCalls == 0) {
             return session.bulkRuntimeRemovalVisibilityEnabled
-                ? "enabled; no removal notifications observed" + lifecycle
-                : "disabled; dispatch counters unavailable" + lifecycle;
+                    ? "enabled; no removal notifications observed" + lifecycle
+                    : "disabled; dispatch counters unavailable" + lifecycle;
         }
         return (session.bulkRuntimeRemovalVisibilityEnabled ? "enabled" : "disabled")
-            + "; calls " + session.runtimeRemovalVisibilityCalls
-            + "; request entries " + session.runtimeRemovalVisibilityRequested
-            + "; individual notifications " + session.runtimeRemovalVisibilityIndividualNotifications
-            + "; original single dispatches " + session.runtimeRemovalVisibilitySingleDispatches
-            + "; batched entries/dispatches " + session.runtimeRemovalVisibilityBatchedIngredients
-            + "/" + session.runtimeRemovalVisibilityBatchedDispatches
-            + "; dispatches avoided " + Math.max(0, session.runtimeRemovalVisibilityIndividualNotifications
+                + "; calls " + session.runtimeRemovalVisibilityCalls
+                + "; request entries " + session.runtimeRemovalVisibilityRequested
+                + "; individual notifications " + session.runtimeRemovalVisibilityIndividualNotifications
+                + "; original single dispatches " + session.runtimeRemovalVisibilitySingleDispatches
+                + "; batched entries/dispatches " + session.runtimeRemovalVisibilityBatchedIngredients
+                + "/" + session.runtimeRemovalVisibilityBatchedDispatches
+                + "; dispatches avoided " + Math.max(0, session.runtimeRemovalVisibilityIndividualNotifications
                 - session.runtimeRemovalVisibilitySingleDispatches - session.runtimeRemovalVisibilityBatchedDispatches)
-            + "; optimized/fallback calls " + session.runtimeRemovalVisibilityOptimizedCalls
-            + "/" + session.runtimeRemovalVisibilityFallbackCalls
-            + "; wrapper time " + formatSeconds(session.runtimeRemovalVisibilityNanos)
-            + lifecycle;
+                + "; optimized/fallback calls " + session.runtimeRemovalVisibilityOptimizedCalls
+                + "/" + session.runtimeRemovalVisibilityFallbackCalls
+                + "; wrapper time " + formatSeconds(session.runtimeRemovalVisibilityNanos)
+                + lifecycle;
     }
 
     private static String structuralChangeSummary(Session session) {
@@ -1225,8 +1263,8 @@ public final class JETOptimizerProfiler {
 
         StringBuilder lines = new StringBuilder("[JETOptimizer] JEI plugin timings\n");
         session.pluginNanos.entrySet().stream()
-            .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-            .forEach(entry -> appendTiming(lines, entry.getKey(), entry.getValue()));
+                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                .forEach(entry -> appendTiming(lines, entry.getKey(), entry.getValue()));
         JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
     }
 
@@ -1293,6 +1331,7 @@ public final class JETOptimizerProfiler {
         private String kubeJSCallbackPhaseReport;
         private long tooltipStartedAt;
         private String tooltipTypeUid;
+        private int tooltipSearchSkipped;
         private String currentSearchPrefix;
         private boolean searchStageActive;
         private boolean registeringRecipes;
@@ -1301,6 +1340,8 @@ public final class JETOptimizerProfiler {
         private int recipeAddRecipeCount;
         private long recipeLayoutNanos;
         private int recipeLayoutCalls;
+        private int recipeLayoutBuildersCreated;
+        private int recipeLayoutBuildersReused;
         private final long[] recipeMapIndexNanos = new long[RECIPE_INGREDIENT_ROLE_NAMES.length];
         private final int[] recipeMapInsertCalls = new int[RECIPE_INGREDIENT_ROLE_NAMES.length];
         private int ingredientCount = -1;
@@ -1385,16 +1426,16 @@ public final class JETOptimizerProfiler {
             values.put("runtime removal visibility batched dispatches", (long) runtimeRemovalVisibilityBatchedDispatches);
             values.put("runtime removal visibility batched ingredients", (long) runtimeRemovalVisibilityBatchedIngredients);
             searchPrefixMetrics.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .forEach(entry -> {
-                    values.put("search getter calls " + entry.getKey(), (long) entry.getValue().getterCalls);
-                    values.put("search candidate strings " + entry.getKey(), entry.getValue().returnedStringCandidates);
-                });
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> {
+                        values.put("search getter calls " + entry.getKey(), (long) entry.getValue().getterCalls);
+                        values.put("search candidate strings " + entry.getKey(), entry.getValue().returnedStringCandidates);
+                    });
             values.put("baked index build calls", (long) bakeCallsTotal());
             values.put("baked index key entries", bakeKeyEntriesTotal());
             tooltipNanosByType.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .forEach(entry -> values.put("tooltip string calls " + entry.getKey(), entry.getValue()[1]));
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> values.put("tooltip string calls " + entry.getKey(), entry.getValue()[1]));
             values.put("search-text pipeline calls", (long) searchTextPipelineCalls);
             values.put("chat-format stripping calls", (long) fastStripCalls);
             values.put("whitespace splitting calls", (long) fastSplitCalls);
@@ -1420,13 +1461,14 @@ public final class JETOptimizerProfiler {
         }
     }
 
-    private record GenerationSnapshot(int generation, long startedAtEpochMillis, String serverAddress, Map<String, Long> values) {
+    private record GenerationSnapshot(int generation, long startedAtEpochMillis, String serverAddress,
+                                      Map<String, Long> values) {
         private static GenerationSnapshot from(Session session) {
             return new GenerationSnapshot(
-                session.generation,
-                session.startedAtEpochMillis,
-                session.serverAddress,
-                Collections.unmodifiableMap(new LinkedHashMap<>(session.structuralValues()))
+                    session.generation,
+                    session.startedAtEpochMillis,
+                    session.serverAddress,
+                    Collections.unmodifiableMap(new LinkedHashMap<>(session.structuralValues()))
             );
         }
     }
@@ -1471,36 +1513,36 @@ public final class JETOptimizerProfiler {
     }
 
     private record OptimizationRecord(
-        int generation,
-        String joinKind,
-        String serverAddress,
-        long totalNanos,
-        long searchNanos,
-        long tooltipNanos,
-        long ingredientRegistrationNanos,
-        long recipeRegistrationNanos,
-        long kubeJsNanos,
-        boolean fastSearchText,
-        long pipelineNanos,
-        int pipelineCalls,
-        long stripNanos,
-        int stripCalls,
-        long splitNanos,
-        int splitCalls,
-        long pipelineOutsideFastPathsNanos,
-        boolean kubeJsItemRemovalObserved,
-        boolean kubeJsItemRemovalEnabled,
-        long kubeJsItemRemovalIndexNanos,
-        int kubeJsItemRemovalSourceEntries,
-        int kubeJsItemRemovalCandidateEntries,
-        int kubeJsItemRemovalCandidateLoopEntries,
-        int kubeJsItemRemovalPredicateTestsBypassed,
-        int kubeJsItemRemovalOriginalPredicateTests,
-        int kubeJsItemRemovalRequestEntries,
-        int kubeJsItemRemovalFallbacks,
-        Map<String, Integer> fallbacks,
-        String runtimeRemovalVisibilitySummary,
-        String structuralChangeSummary
+            int generation,
+            String joinKind,
+            String serverAddress,
+            long totalNanos,
+            long searchNanos,
+            long tooltipNanos,
+            long ingredientRegistrationNanos,
+            long recipeRegistrationNanos,
+            long kubeJsNanos,
+            boolean fastSearchText,
+            long pipelineNanos,
+            int pipelineCalls,
+            long stripNanos,
+            int stripCalls,
+            long splitNanos,
+            int splitCalls,
+            long pipelineOutsideFastPathsNanos,
+            boolean kubeJsItemRemovalObserved,
+            boolean kubeJsItemRemovalEnabled,
+            long kubeJsItemRemovalIndexNanos,
+            int kubeJsItemRemovalSourceEntries,
+            int kubeJsItemRemovalCandidateEntries,
+            int kubeJsItemRemovalCandidateLoopEntries,
+            int kubeJsItemRemovalPredicateTestsBypassed,
+            int kubeJsItemRemovalOriginalPredicateTests,
+            int kubeJsItemRemovalRequestEntries,
+            int kubeJsItemRemovalFallbacks,
+            Map<String, Integer> fallbacks,
+            String runtimeRemovalVisibilitySummary,
+            String structuralChangeSummary
     ) {
     }
 

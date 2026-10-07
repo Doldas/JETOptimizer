@@ -2,6 +2,7 @@ package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
 import dev.jetoptimizer.SearchTextOptimization;
+import dev.jetoptimizer.TooltipSearchOptimization;
 import mezz.jei.api.ingredients.ITypedIngredient;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
@@ -33,8 +34,13 @@ abstract class ListElementInfoMixin<V> {
     @Unique
     private String jetoptimizer$ingredientTypeUid;
 
-    @Inject(method = "getTooltipStrings", at = @At("HEAD"), remap = false)
-    private void jetoptimizer$beginTooltipStrings(CallbackInfoReturnable<?> callbackInfo) {
+    @Inject(method = "getTooltipStrings", at = @At("HEAD"), cancellable = true, remap = false)
+    private void jetoptimizer$beginTooltipStrings(CallbackInfoReturnable<Set<String>> callbackInfo) {
+        if (TooltipSearchOptimization.skipTooltipSearch()) {
+            JETOptimizerProfiler.recordTooltipSearchSkipped();
+            callbackInfo.setReturnValue(Set.of());
+            return;
+        }
         jetoptimizer$ingredientTypeUid = ingredientTypeUid();
         JETOptimizerProfiler.beginTooltipStringSource(jetoptimizer$ingredientTypeUid);
     }
@@ -80,9 +86,9 @@ abstract class ListElementInfoMixin<V> {
      */
     @Inject(method = "addSplitStrings", at = @At("HEAD"), cancellable = true, remap = false)
     private static void jetoptimizer$fastSplitWhitespace(
-        Set<String> result,
-        String string,
-        CallbackInfo callbackInfo
+            Set<String> result,
+            String string,
+            CallbackInfo callbackInfo
     ) {
         if (!SearchTextOptimization.enabled() || string == null) {
             return;

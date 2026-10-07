@@ -2,7 +2,7 @@
 
 JETOptimizer is an experimental client-side performance research mod for Minecraft 1.21.1 on NeoForge. It focuses initially on measuring JEI initialization during joins and reconnects in large modpacks.
 
-**Reconnect caching is not implemented.** JETOptimizer includes the verified JEI search-text fast path and opt-in experimental KubeJS/runtime-removal optimizations. The current prototype batches JEI's per-ingredient visibility notifications within each runtime removal call, but only when JEI's two internal listeners are the only listeners; otherwise it falls back to JEI's original calls. Measurements and lifecycle/source evidence are in the [performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md).
+**Reconnect caching is not implemented.** JETOptimizer includes the verified JEI search-text fast path and opt-in experimental KubeJS/runtime-removal/reusable-recipe-builder optimizations. The fast-join experiment can skip tooltip-word generation in JEI's search index; regular hover tooltips are unaffected, but searching by tooltip text is disabled for that runtime. Measurements and lifecycle/source evidence are in the [performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md).
 
 ## Compatibility
 
@@ -33,13 +33,15 @@ NeoForge creates `config/jetoptimizer-client.toml` on the client. Current option
 | `reconnectCache` | `false` | Reserved; no cache implementation is active |
 | `debugCache` | `false` | Reserved cache diagnostics |
 | `debugCacheInvalidation` | `false` | Reserved invalidation diagnostics |
-| `experimentalOptimizations` | `false` | Master switch for the experimental KubeJS and runtime-removal optimizations |
+| `experimentalOptimizations` | `false` | Master switch for experimental optimizations |
 | `fastSearchText` | `true` | Replace JEI's per-tooltip-line search-word regexes with equivalent non-regex scans; pure text work, no cached state |
 | `kubeJsItemRemovalIndex` | `true` | Dense-ID candidate index for simple KubeJS remote item-removal ingredients; custom predicates keep the original scan |
 | `skipUnusedKubeJsCategoryMap` | `true` | Skip category-map construction only when no removal listeners exist and KubeJS `remote` is null |
 | `bulkRuntimeRemovalVisibility` | `true` | Batch JEI visibility callbacks for runtime removals when only JEI's internal listeners are present |
+| `reuseRecipeLayoutBuilders` | `true` | Reuse temporary JEI recipe-layout builders during recipe registration; categories must not retain builders after `setRecipe` |
+| `fastJoinSkipTooltipSearch` | `false` | Skip tooltip-word generation during JEI search-index construction to test a faster join; does not affect displayed hover tooltips |
 
-Profiling and plugin profiling are independent. The reserved reconnect-cache options (`reconnectCache`, `debugCache`, `debugCacheInvalidation`) remain inert. `fastSearchText` is independently switchable; the other experimental optimizations require both master switches and their corresponding option. KubeJS reflection failures and any extra `IIngredientVisibility` listener fall back to the original behavior.
+Profiling and plugin profiling are independent. The reserved reconnect-cache options (`reconnectCache`, `debugCache`, `debugCacheInvalidation`) remain inert. `fastSearchText` is independently switchable; the other experimental optimizations require both master switches and their corresponding option. KubeJS reflection failures and any extra `IIngredientVisibility` listener fall back to the original behavior. Recipe-layout builders are cleared at the end of registration, and on JEI runtime stop, so the pool does not retain an ingredient manager across joins.
 
 ## Build and run
 

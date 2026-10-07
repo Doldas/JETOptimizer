@@ -7,6 +7,44 @@
 
 **Candidate regions were then checked against the JEI sources rather than only against timings.** See `docs/JEI_SOURCE_ANALYSIS.md` for why the three dominant regions offer no safe redundancy, and `docs/PROFILER_MIXINS.md` for the connection-generation and by-type tooltip instrumentation that now exists to answer the remaining questions.
 
+## Recipe layout builder reuse and fast-join tooltip experiment
+
+Two opt-in experiments are now available under `enabled`, `experimentalOptimizations`, and their
+individual flags:
+
+* `reuseRecipeLayoutBuilders` reuses JEI's short-lived `IngredientSupplierBuilder` within one
+  synchronous `Registering recipes` phase. JEI copies its completed output into an immutable
+  `RecipeIngredientSupplier`; the mixin clears the builder's role-slot and focus-link collections
+  only after that copy. The bounded thread-local pool is released at the end of recipe registration
+  and on runtime stop, and entries tied to a different `IIngredientManager` are discarded. This
+  reduces repeated builder/collection setup, but plugin categories must not retain a builder beyond
+  their `setRecipe` callback. The profile reports builder instances created/reused.
+* `fastJoinSkipTooltipSearch` cancels `ListElementInfo.getTooltipStrings` during search-index
+  construction, before invoking JEI's safe renderer path. It does **not** change tooltips shown on
+  hover, but items no longer match searches by tooltip words for that JEI runtime. It is off by
+  default and reports the number of ingredients skipped. This is a deliberate feature tradeoff to
+  measure the upper bound of cutting the ~7 s tooltip-search phase, not a semantics-preserving
+  optimization.
+
+Development smoke test (Minecraft 1.21.1, NeoForge 21.1.255, JEI 19.57.0.449, vanilla integrated
+world, 1,691 ingredients) exercised both flags in one JEI startup:
+
+| Observation | Result |
+|---|---:|
+| JEI start | 0.684 s |
+| `IngredientSupplierHelper` category-layout calls | 3,499 |
+| Recipe layout builders created/reused | 2 / 3,503 |
+| Tooltip-search render calls skipped | 1,691 |
+| Tooltip source candidate strings | 0 |
+
+JEI registered recipes and completed GUI startup without a JETOptimizer Mixin error. This validates
+that the hooks execute and that the fast-join option removes the tooltip source from the index; the
+vanilla run is too small to establish a representative time saving or verify every mod category's
+builder lifetime. Compare repeated full-feature and fast-join runs on the same ATM10A client/server
+setup, and verify recipe lookup, focus links, displayed tooltip hover, and search behavior. Builder
+reuse should remain disabled if any plugin retains or mutates a recipe-layout builder after its
+`setRecipe` callback returns.
+
 ## KubeJS `onRuntimeAvailable` root cause and fix (category-map skip)
 
 **Status: measured, isolated, and optimized in this iteration.** KubeJS's JEI callback was a fixed

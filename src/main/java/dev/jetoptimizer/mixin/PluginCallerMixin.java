@@ -1,6 +1,7 @@
 package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
+import dev.jetoptimizer.RecipeLayoutBuilderPool;
 import mezz.jei.api.IModPlugin;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
@@ -24,16 +25,19 @@ abstract class PluginCallerMixin {
     @Inject(method = "callOnPlugins", at = @At("RETURN"), remap = false)
     private static void jetoptimizer$finishPluginPhase(String title, List<IModPlugin> plugins, Consumer<IModPlugin> callback, CallbackInfo callbackInfo) {
         JETOptimizerProfiler.finishPluginPhase(title);
+        if ("Registering recipes".equals(title)) {
+            RecipeLayoutBuilderPool.clear();
+        }
     }
 
     @Redirect(
-        method = "callOnPlugins",
-        at = @At(
-            value = "INVOKE",
-            target = "Ljava/util/function/Consumer;accept(Ljava/lang/Object;)V",
+            method = "callOnPlugins",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Ljava/util/function/Consumer;accept(Ljava/lang/Object;)V",
+                    remap = false
+            ),
             remap = false
-        ),
-        remap = false
     )
     private static void jetoptimizer$timePluginCallback(Consumer<Object> callback, Object pluginObject) {
         if (!JETOptimizerProfiler.isPluginProfilingActive() || !(pluginObject instanceof IModPlugin plugin)) {
