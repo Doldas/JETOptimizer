@@ -2,7 +2,7 @@
 
 JETOptimizer is an experimental client-side performance research mod for Minecraft 1.21.1 on NeoForge. It focuses initially on measuring JEI initialization during joins and reconnects in large modpacks.
 
-**Reconnect caching is not implemented.** JETOptimizer includes the verified JEI search-text fast path and opt-in experimental KubeJS/runtime-removal/reusable-recipe-builder optimizations. The fast-join experiment can skip tooltip-word generation in JEI's search index; regular hover tooltips are unaffected, but searching by tooltip text is disabled for that runtime. Measurements and lifecycle/source evidence are in the [performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md).
+JETOptimizer persists JEI substring lookup tables to disk and preloads them asynchronously during client setup, before entering a server or singleplayer world. Reuse requires an exact match of the current ordered search strings; current ingredients are rebound when JEI starts. See [persistent search cache](docs/PERSISTENT_SEARCH_CACHE.md) for lifecycle, limits and validation. JETOptimizer also includes the verified JEI search-text fast path and experimental KubeJS/runtime-removal/reusable-recipe-builder optimizations. The fast-join experiment can skip tooltip-word generation in JEI's search index; regular hover tooltips are unaffected, but searching by tooltip text is disabled for that runtime. Measurements and lifecycle/source evidence are in the [performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md).
 
 ## Compatibility
 
@@ -15,7 +15,7 @@ JETOptimizer is an experimental client-side performance research mod for Minecra
 
 ## Current status
 
-The repository contains the client mod/config, the [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md), and the [ATM10 Aeronautics performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md). Profiling hooks are added only at source-confirmed lifecycle and timing boundaries. Experimental optimizations require `enabled` and `experimentalOptimizations`, plus their individual option; uncertain KubeJS probes or third-party JEI visibility listeners retain the original path. Reconnect caching remains disabled and unimplemented.
+The repository contains the client mod/config, the [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md), and the [ATM10 Aeronautics performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md). Profiling hooks are added only at source-confirmed lifecycle and timing boundaries. Experimental optimizations require `enabled` and `experimentalOptimizations`, plus their individual option; uncertain KubeJS probes or third-party JEI visibility listeners retain the original path. Persistent search caching requires `enabled` and `reconnectCache`, and activates only for JEI 19.57.0.449.
 
 For hands-on testing with the local Prism Launcher ATM10 Aeronautics instance, follow [the Prism/ATM10A test guide](docs/PRISM_ATM10A_MANUAL_TEST.md).
 
@@ -30,10 +30,10 @@ NeoForge creates `config/jetoptimizer-client.toml` on the client. Current option
 | `enabled` | `true` | Master switch for JETOptimizer features |
 | `profiling` | `false` | Enable lifecycle/initialization profiling |
 | `pluginProfiling` | `false` | Enable additional per-plugin timing aggregation |
-| `reconnectCache` | `false` | Reserved; no cache implementation is active |
-| `debugCache` | `false` | Reserved cache diagnostics |
-| `debugCacheInvalidation` | `false` | Reserved invalidation diagnostics |
-| `experimentalOptimizations` | `false` | Master switch for experimental optimizations |
+| `reconnectCache` | `true` | Persist bounded substring tables and preload them at client setup; exact JEI 19.57.0.449 only |
+| `debugCache` | `false` | Log matching search-table hits |
+| `debugCacheInvalidation` | `false` | Log changed or missing search-table misses |
+| `experimentalOptimizations` | `true` | Master switch for experimental optimizations |
 | `fastSearchText` | `true` | Replace JEI's per-tooltip-line search-word regexes with equivalent non-regex scans; pure text work, no cached state |
 | `kubeJsItemRemovalIndex` | `true` | Dense-ID candidate index for simple KubeJS remote item-removal ingredients; custom predicates keep the original scan |
 | `skipUnusedKubeJsCategoryMap` | `true` | Skip category-map construction only when no removal listeners exist and KubeJS `remote` is null |
@@ -41,9 +41,9 @@ NeoForge creates `config/jetoptimizer-client.toml` on the client. Current option
 | `reuseRecipeLayoutBuilders` | `true` | Reuse temporary JEI recipe-layout builders during recipe registration; categories must not retain builders after `setRecipe` |
 | `fastUnfocusedRecipeVisibility` | `true` | Early-exit linked-slot visibility checks in the recipe manager for empty focuses; layouts and focused queries keep JEI's full algorithm |
 | `fastRecipeSuppliers` | `true` | Build immutable ingredient snapshots with loops and skip temporary indexes for empty recipe roles |
-| `fastJoinSkipTooltipSearch` | `false` | Skip tooltip-word generation during JEI search-index construction to test a faster join; does not affect displayed hover tooltips |
+| `fastJoinSkipTooltipSearch` | `true` | Skip tooltip-word generation during JEI search-index construction to test a faster join; does not affect displayed hover tooltips |
 
-Profiling and plugin profiling are independent. The reserved reconnect-cache options (`reconnectCache`, `debugCache`, `debugCacheInvalidation`) remain inert. `fastSearchText` is independently switchable; the other experimental optimizations require both master switches and their corresponding option. KubeJS reflection failures and any extra `IIngredientVisibility` listener fall back to the original behavior. Recipe-layout builders are cleared at the end of registration, and on JEI runtime stop, so the pool does not retain an ingredient manager across joins.
+Profiling and plugin profiling are independent. The cache retains only integer lookup tables between runtimes; it does not retain ingredients, worlds, recipes or tooltip results. If caching was disabled at client setup, enabling it requires a game restart. `fastSearchText` is independently switchable; the other experimental optimizations require both master switches and their corresponding option. KubeJS reflection failures and any extra `IIngredientVisibility` listener fall back to the original behavior. Recipe-layout builders are cleared at the end of registration, and on JEI runtime stop, so the pool does not retain an ingredient manager across joins.
 
 ## Build and run
 

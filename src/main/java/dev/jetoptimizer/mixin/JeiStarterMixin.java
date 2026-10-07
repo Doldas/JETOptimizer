@@ -4,6 +4,7 @@ import dev.jetoptimizer.JETOptimizerProfiler;
 import dev.jetoptimizer.RecipeLayoutBuilderPool;
 import dev.jetoptimizer.RecipeStartupOptimization;
 import dev.jetoptimizer.TooltipSearchOptimization;
+import dev.jetoptimizer.PersistentSearchIndexCache;
 import mezz.jei.api.ingredients.IIngredientType;
 import mezz.jei.api.runtime.IJeiRuntime;
 import mezz.jei.common.Internal;
@@ -20,6 +21,7 @@ abstract class JeiStarterMixin {
     @Inject(method = "start", at = @At("HEAD"), remap = false)
     private void jetoptimizer$beginExperimentalRuntimeOptions(CallbackInfo callbackInfo) {
         TooltipSearchOptimization.beginRuntime();
+        PersistentSearchIndexCache.beginRuntime();
         RecipeStartupOptimization.reset();
         RecipeLayoutBuilderPool.clear();
     }
@@ -61,6 +63,7 @@ abstract class JeiStarterMixin {
         long finishedAt = System.nanoTime();
         Internal.getOptionalJeiRuntime().ifPresent(JeiStarterMixin::recordIngredientCount);
         JETOptimizerProfiler.finishJeiStartup(finishedAt);
+        PersistentSearchIndexCache.reportRuntime();
     }
 
     private static void recordIngredientCount(IJeiRuntime runtime) {

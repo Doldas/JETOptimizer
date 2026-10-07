@@ -27,9 +27,13 @@ public final class JETOptimizerConfig {
         ENABLED = BUILDER.define("enabled", true);
         PROFILING = BUILDER.define("profiling", false);
         PLUGIN_PROFILING = BUILDER.define("pluginProfiling", false);
-        RECONNECT_CACHE = BUILDER.define("reconnectCache", true);
-        DEBUG_CACHE = BUILDER.define("debugCache", false);
-        DEBUG_CACHE_INVALIDATION = BUILDER.define("debugCacheInvalidation", false);
+        RECONNECT_CACHE = BUILDER
+                .comment("Persists JEI's deterministic substring lookup tables to disk and preloads them at client setup.",
+                        "Reuse requires matching ordered search strings; live ingredients, recipes and tooltips are not cached.",
+                        "Requires JEI 19.57.0.449. Enabling after client setup requires restarting Minecraft.")
+                .define("reconnectCache", true);
+        DEBUG_CACHE = BUILDER.comment("Log search-table cache hits.").define("debugCache", false);
+        DEBUG_CACHE_INVALIDATION = BUILDER.comment("Log search-table cache misses.").define("debugCacheInvalidation", false);
         EXPERIMENTAL_OPTIMIZATIONS = BUILDER.define("experimentalOptimizations", true);
         BUILDER.push("optimizations");
         FAST_UNFOCUSED_RECIPE_VISIBILITY = BUILDER
