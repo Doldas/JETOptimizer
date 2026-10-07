@@ -5,6 +5,9 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.fml.loading.FMLPaths;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
@@ -14,8 +17,10 @@ public final class JETOptimizer {
     public static final String MOD_ID = "jetoptimizer";
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    public JETOptimizer(ModContainer modContainer) {
+    public JETOptimizer(ModContainer modContainer, IEventBus modBus) {
         modContainer.registerConfig(ModConfig.Type.CLIENT, JETOptimizerConfig.SPEC);
+        modBus.addListener((FMLClientSetupEvent event) -> PersistentSearchIndexCache.initialize(
+                FMLPaths.GAMEDIR.get().resolve("cache/jetoptimizer/search-index-v1.bin")));
         NeoForge.EVENT_BUS.addListener(JETOptimizerProfiler::onRecipesUpdated);
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingIn event) -> JETOptimizerProfiler.onLoggingIn());
         NeoForge.EVENT_BUS.addListener(JETOptimizerProfiler::onLoggingOut);
