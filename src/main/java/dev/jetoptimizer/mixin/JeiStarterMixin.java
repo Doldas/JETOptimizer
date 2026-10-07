@@ -2,6 +2,7 @@ package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
 import dev.jetoptimizer.RecipeLayoutBuilderPool;
+import dev.jetoptimizer.RecipeStartupOptimization;
 import dev.jetoptimizer.TooltipSearchOptimization;
 import mezz.jei.api.ingredients.IIngredientType;
 import mezz.jei.api.runtime.IJeiRuntime;
@@ -19,12 +20,14 @@ abstract class JeiStarterMixin {
     @Inject(method = "start", at = @At("HEAD"), remap = false)
     private void jetoptimizer$beginExperimentalRuntimeOptions(CallbackInfo callbackInfo) {
         TooltipSearchOptimization.beginRuntime();
+        RecipeStartupOptimization.reset();
         RecipeLayoutBuilderPool.clear();
     }
 
     @Inject(method = "stop", at = @At("HEAD"), remap = false)
     private void jetoptimizer$clearExperimentalRuntimeOptions(CallbackInfo callbackInfo) {
         TooltipSearchOptimization.endRuntime();
+        RecipeStartupOptimization.reset();
         RecipeLayoutBuilderPool.clear();
     }
 

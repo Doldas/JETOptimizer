@@ -19,6 +19,9 @@ import java.util.function.Consumer;
 abstract class PluginCallerMixin {
     @Inject(method = "callOnPlugins", at = @At("HEAD"), remap = false)
     private static void jetoptimizer$beginPluginPhase(String title, List<IModPlugin> plugins, Consumer<IModPlugin> callback, CallbackInfo callbackInfo) {
+        if ("Registering recipes".equals(title)) {
+            RecipeLayoutBuilderPool.beginRegistration();
+        }
         JETOptimizerProfiler.beginPluginPhase(title);
     }
 
