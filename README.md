@@ -2,7 +2,7 @@
 
 JETOptimizer is an experimental client-side performance research mod for Minecraft 1.21.1 on NeoForge. It focuses initially on measuring JEI initialization during joins and reconnects in large modpacks.
 
-**Reconnect caching is not implemented, but experimental optimizations are now active** and are only claimed where measured in repeatable in-game benchmarks. Current optimizations: fail-open replacement of JEI's per-tooltip-line search-word regular expressions, and removal of provably-dead KubeJS `onRuntimeAvailable` work (its recipe-category map and, where a remote removal scan runs, an ID-index on simple removal ingredients). Measured results and the fail-open reasoning are in the [performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md).
+**Reconnect caching is not implemented.** JETOptimizer includes the verified JEI search-text fast path and opt-in experimental KubeJS/runtime-removal optimizations. The current prototype batches JEI's per-ingredient visibility notifications within each runtime removal call, but only when JEI's two internal listeners are the only listeners; otherwise it falls back to JEI's original calls. Measurements and lifecycle/source evidence are in the [performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md).
 
 ## Compatibility
 
@@ -15,7 +15,7 @@ JETOptimizer is an experimental client-side performance research mod for Minecra
 
 ## Current status
 
-The repository contains the client mod/config, the [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md), and the [ATM10 Aeronautics performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md). Profiling hooks are added only at source-confirmed lifecycle and timing boundaries. Active optimizations are individually gated (or always-on but fail-open by construction — a missed probe or unknown ingredient restores the original code path); see the configuration table below. Reconnect caching remains disabled and unimplemented.
+The repository contains the client mod/config, the [JEI 19.57.0.449 lifecycle report](docs/JEI_LIFECYCLE_ANALYSIS.md), and the [ATM10 Aeronautics performance analysis](docs/JEI_PERFORMANCE_ANALYSIS.md). Profiling hooks are added only at source-confirmed lifecycle and timing boundaries. Experimental optimizations require `enabled` and `experimentalOptimizations`, plus their individual option; uncertain KubeJS probes or third-party JEI visibility listeners retain the original path. Reconnect caching remains disabled and unimplemented.
 
 For hands-on testing with the local Prism Launcher ATM10 Aeronautics instance, follow [the Prism/ATM10A test guide](docs/PRISM_ATM10A_MANUAL_TEST.md).
 
@@ -33,11 +33,13 @@ NeoForge creates `config/jetoptimizer-client.toml` on the client. Current option
 | `reconnectCache` | `false` | Reserved; no cache implementation is active |
 | `debugCache` | `false` | Reserved cache diagnostics |
 | `debugCacheInvalidation` | `false` | Reserved invalidation diagnostics |
-| `experimentalOptimizations` | `false` | Reserved; currently not consumed by any feature |
+| `experimentalOptimizations` | `false` | Master switch for the experimental KubeJS and runtime-removal optimizations |
 | `fastSearchText` | `true` | Replace JEI's per-tooltip-line search-word regexes with equivalent non-regex scans; pure text work, no cached state |
 | `kubeJsItemRemovalIndex` | `true` | Dense-ID candidate index for simple KubeJS remote item-removal ingredients; custom predicates keep the original scan |
+| `skipUnusedKubeJsCategoryMap` | `true` | Skip category-map construction only when no removal listeners exist and KubeJS `remote` is null |
+| `bulkRuntimeRemovalVisibility` | `true` | Batch JEI visibility callbacks for runtime removals when only JEI's internal listeners are present |
 
-Profiling and plugin profiling are independent. The reserved reconnect-cache options (`reconnectCache`, `debugCache`, `debugCacheInvalidation`) and `experimentalOptimizations` are currently inert; their presence does not imply that a cache exists. Active optimizations are individually gated (`fastSearchText` by itself, `kubeJsItemRemovalIndex` by `enabled` + the option). The KubeJS `onRuntimeAvailable` category-map skip has no config switch: it is always on, and fail-open by construction — a missed reflection probe or a present `REMOVE_*` listener restores the full original map build.
+Profiling and plugin profiling are independent. The reserved reconnect-cache options (`reconnectCache`, `debugCache`, `debugCacheInvalidation`) remain inert. `fastSearchText` is independently switchable; the other experimental optimizations require both master switches and their corresponding option. KubeJS reflection failures and any extra `IIngredientVisibility` listener fall back to the original behavior.
 
 ## Build and run
 

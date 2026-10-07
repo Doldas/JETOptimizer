@@ -75,6 +75,15 @@ public final class KubeJSCallbackProbe {
     }
 
     public static boolean categoriesMapUnused(Object plugin) {
+        try {
+            if (!JETOptimizerConfig.ENABLED.get()
+                || !JETOptimizerConfig.EXPERIMENTAL_OPTIMIZATIONS.get()
+                || !JETOptimizerConfig.SKIP_UNUSED_KUBEJS_CATEGORY_MAP.get()) {
+                return false;
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            return false;
+        }
         if (EVENT_HANDLER_HAS_LISTENERS == null || REMOVE_CATEGORIES_EVENT == null || REMOVE_RECIPES_EVENT == null) {
             return false;
         }

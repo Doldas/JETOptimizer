@@ -73,9 +73,13 @@ experimentalOptimizations = false
 [optimizations]
 fastSearchText = true
 kubeJsItemRemovalIndex = true
+skipUnusedKubeJsCategoryMap = true
+bulkRuntimeRemovalVisibility = true
 ```
 
-The two profiling options are independent. `reconnectCache`, `debugCache`, `debugCacheInvalidation`, and `experimentalOptimizations` are reserved (not currently consumed). The `[optimizations]` group is active; its two options default to enabled.
+The two profiling options are independent. `reconnectCache`, `debugCache`, and `debugCacheInvalidation` are reserved. This instrumentation-only profile leaves the experimental master switch off.
+
+For the ID/bulk prototype test, set `experimentalOptimizations = true` under `[general]`; keep `enabled = true` and the four options in `[optimizations]` true. Each feature has its own fallback, and runtime-removal notifications are batched only when JEI's `IngredientFilter` and `RecipeManagerInternal` are the only visibility listeners.
 
 To measure what the instrumentation itself costs, keep the mod enabled but stand the timing hooks down:
 
@@ -169,4 +173,4 @@ Run A's 27.447 s remains unexplained and is not a usable baseline. The current i
 
 ## What to send with a test report
 
-Include repeated JEI total times and run-to-run spread, the JETOptimizer profile block, relevant JEI `PluginCaller` lines, the scenario (first join/reconnect/reload/server switch), and the client/server mod versions. The profile is diagnostic: it does not change recipes, skip callbacks, cache the runtime, or require JETOptimizer on the server.
+Include the cold-join and same-process reconnect blocks from the same `latest.log`, the optimization report's removal lifecycle/visibility-batch counters, relevant JEI `PluginCaller` lines, and client/server mod versions. JETOptimizer remains client-only and does not require server installation.

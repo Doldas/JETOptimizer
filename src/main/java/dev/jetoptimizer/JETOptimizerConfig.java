@@ -14,6 +14,8 @@ public final class JETOptimizerConfig {
     public static final ModConfigSpec.BooleanValue EXPERIMENTAL_OPTIMIZATIONS;
     public static final ModConfigSpec.BooleanValue FAST_SEARCH_TEXT;
     public static final ModConfigSpec.BooleanValue KUBEJS_ITEM_REMOVAL_INDEX;
+    public static final ModConfigSpec.BooleanValue SKIP_UNUSED_KUBEJS_CATEGORY_MAP;
+    public static final ModConfigSpec.BooleanValue BULK_RUNTIME_REMOVAL_VISIBILITY;
     public static final ModConfigSpec SPEC;
 
     static {
@@ -39,6 +41,12 @@ public final class JETOptimizerConfig {
                 "Unknown/custom ingredient predicates use KubeJS's original full scan."
             )
             .define("kubeJsItemRemovalIndex", true);
+        SKIP_UNUSED_KUBEJS_CATEGORY_MAP = BUILDER
+            .comment("Skips KubeJS's category map only when both removal events have no listeners and remote data is absent.")
+            .define("skipUnusedKubeJsCategoryMap", true);
+        BULK_RUNTIME_REMOVAL_VISIBILITY = BUILDER
+            .comment("Batches JEI visibility notifications for runtime removals when only JEI's internal listeners are registered.")
+            .define("bulkRuntimeRemovalVisibility", true);
         BUILDER.pop();
         BUILDER.pop();
         SPEC = BUILDER.build();

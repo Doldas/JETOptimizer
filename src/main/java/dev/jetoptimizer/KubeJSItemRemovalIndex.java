@@ -32,7 +32,9 @@ public final class KubeJSItemRemovalIndex {
     public static void beginCallback(IJeiRuntime runtime) {
         boolean enabled;
         try {
-            enabled = JETOptimizerConfig.ENABLED.get() && JETOptimizerConfig.KUBEJS_ITEM_REMOVAL_INDEX.get();
+            enabled = JETOptimizerConfig.ENABLED.get()
+                && JETOptimizerConfig.EXPERIMENTAL_OPTIMIZATIONS.get()
+                && JETOptimizerConfig.KUBEJS_ITEM_REMOVAL_INDEX.get();
         } catch (RuntimeException | LinkageError ignored) {
             enabled = false;
         }

@@ -145,10 +145,32 @@ consumed by two event posts guarded by `RecipeViewerEvents.REMOVE_CATEGORIES/.RE
 reflectively and fail-open, whether either removal event has a listener (via
 `EventHandler.hasListeners()` on those public static fields) and whether the plugin's private
 `remote` field is null; only when all three are absent does it return `Stream.empty()`, so the
-`toMap` collect yields an empty map and `onRuntimeAvailable` proceeds identically. Any reflection
-failure returns `false` and the full map is built as before. Measurement on a cold remote join:
+`toMap` collect yields an empty map and `onRuntimeAvailable` proceeds identically. The feature now
+requires `enabled`, `experimentalOptimizations`, and `optimizations.skipUnusedKubeJsCategoryMap`; any
+reflection failure returns `false` and the full map is built as before. Measurement on a cold remote join:
 callback total 2.638 s -> 0.001 s, `Total JEI start` 26.342 s -> 23.671 s, JEI GUI runtime
 construction unchanged at 10.391 vs 10.468 s (no cost migration).
+
+### Runtime removal notification batching
+
+`RegisteredIngredientIndexMixin` counts successful `Map.remove` results inside the exact JEI
+`RegisteredIngredientIndex.remove` method. This distinguishes requested removal entries from entries
+actually removed from manager membership, without building a second UID set.
+
+`IngredientBlacklistInternalMixin` wraps `onIngredientsRemoved` in `try/finally` and redirects its
+per-ingredient `notifyListenersOfVisibilityChange` call. With `enabled`, `experimentalOptimizations`,
+and `optimizations.bulkRuntimeRemovalVisibility` enabled, it groups affected typed ingredients by
+their exact `UidContext` set and uses JEI's existing collection notification once per group, scoped to
+one manager removal call. The fast path verifies reflectively that `IngredientVisibility` has exactly
+JEI's `IngredientFilter` and `RecipeManagerInternal` listeners. An extra listener, missing field, or
+config-read failure delegates each event to the original private notifier. JEI's collection callbacks
+process all entries and invalidate the filter/category caches once per group.
+
+The optimization report records requested and effective removals, original per-item dispatches,
+batched entry/dispatch counts, compatible-listener/fallback call counts, and wrapper time. The batch
+holds only references for the synchronous call and is released in `finally`; it does not retain
+ingredients between calls or generations. Compare final ingredient counts and both cold/reconnect
+JEI timings before claiming a wall-clock gain.
 
 ## GUI runtime gate waterfall
 
@@ -178,3 +200,8 @@ The report shows each fast path's measured time and call count, plus `pipeline w
 report does not infer time saved versus the original regexes. Estimate savings separately with a
 controlled baseline or a differential microbenchmark. Each row also carries the per-generation
 totals, fallback count by name, and structural comparison summary against the previous generation.
+The removal section separately prints requested manager entries and successful index removals, then
+visibility changes as original single-item dispatches versus batched entries/collection dispatches.
+Once the process has both a cold remote row and an unchanged same-server reconnect row, the report
+also prints a compact `COLD vs RECONNECT` table for JEI total, search index, tooltip extraction,
+ingredient registration, recipe registration and KubeJS callback time.

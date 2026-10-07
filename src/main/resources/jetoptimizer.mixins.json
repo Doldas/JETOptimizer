@@ -7,6 +7,8 @@
     "ClientPacketListenerMixin",
     "BakedSubstringIndexBuilderMixin",
     "IngredientManagerMixin",
+    "IngredientBlacklistInternalMixin",
+    "RegisteredIngredientIndexMixin",
     "IngredientFilterMixin",
     "IngredientListElementFactoryMixin",
     "ListElementInfoMixin",

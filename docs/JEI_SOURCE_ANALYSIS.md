@@ -173,25 +173,39 @@ Runtime ingredient add requests/calls: 1/1
 Runtime ingredient remove requests/calls: 17729/34
 ```
 
-24% of the ingredients that were tooltip-indexed are gone before the player ever opens JEI, so
-roughly 1.75 s of the tooltip phase is spent on ingredients that are never shown. This is the only
-proportion of the startup that is provably wasted.
+The 2026-10-07 test refines the ordering. Of 34 removal calls and 17,729 requested entries, six calls
+with 1,271 requested entries occurred before `JeiGuiStarter.start` built the base list. The remaining
+28 calls (16,458 item entries) happened after the filter/search index had completed. Thus the 1,271
+early requests did not pay tooltip-index cost, while up to 16,458 registered item entries in later
+requests did. The test also requested one runtime addition.
 
-The log ordering shows why it cannot be avoided from outside JEI:
+`RegisteredIngredientIndex.remove` reported 17,600 successful UID removals over the entire startup,
+including the six pre-filter calls. The post-filter manager count went from 68,186 to 51,744, a net
+decrease of 16,442. Because the added entry is requested after the base list is built, the effective
+post-index removal count is 16,442 or 16,443 depending on whether that one addition was accepted; the
+current counter does not split successful removals by side of the search-index boundary. The 17,729
+request count must not be treated as unique successful removals. The performance analysis documents
+the corresponding approximately 1.71 s per-item-average tooltip estimate and its limitations.
+
+The log ordering in the latest test is:
 
 ```text
-22:08:31.795  Adding 68186 ingredients      <- search index built over all of them
-22:08:31.934  Added 68186 ingredients
-22:08:35.088  Ingredients are being removed at runtime: 10 ...
-22:08:35.141  Ingredients are being removed at runtime: 14239 ...
-22:08:37.907  Sending Runtime took 2.819 seconds
+21:15:02.841  remove 317                         <- before GUI list/index
+21:15:07.785  remove 144                         <- last of six pre-filter calls
+21:15:07.788  Starting JEI GUI
+21:15:08.128  Building ingredient filter...
+21:15:16.232  Added 68186 ingredients            <- search index complete
+21:15:19.145  Sending Runtime begins, removals...
+21:15:19.194  remove 14239                       <- one of 28 post-index calls
 ```
 
-The removals come from plugins calling `IIngredientManager.removeIngredientsAtRuntime` during
-`onRuntimeAvailable`, about three seconds after the index is built. They are plugin decisions about
-which ingredients are valid on that server, so they cannot be predicted at index time. Avoiding the
-waste would mean reordering JEI's own startup so the index is built after runtime sync, which is a
-behavior change and would delay the first paint of the ingredient list.
+Early removals happen during recipe/runtime registration; later ones are in `onRuntimeAvailable`.
+They are plugin decisions about which ingredients are valid on the server and cannot generally be
+predicted before the relevant callbacks. Avoiding the post-index tooltip work by moving index
+construction would reorder JEI's lifecycle. JEI builds and installs `IngredientFilter` during
+`registerRuntime`, before constructing and publishing `IJeiRuntime`; runtime plugins receive that
+already-installed filter and may query it. Deferring construction would change this API contract, so
+it is not the current prototype.
 
 The related memory point is that `IngredientFilter.onIngredientsRemoved` is documented in JEI as
 "ignore this, it's handled by onIngredientVisibilityChanged", so the search storage keeps entries for
@@ -221,7 +235,7 @@ of the tooltip stage in both profiled generations, at roughly 83-100 microsecond
 other ingredient type together under 0.01 s. The cost is ordinary `appendHoverText` work spread over
 ~67,000 items, not a pathological type that could be excluded.
 
-## Conclusion
+## Current optimization boundary
 
 Within a single connection the dominant regions are all first-occurrence work whose inputs are
 connection-bound, and the source shows no safe redundancy to remove:
@@ -229,18 +243,28 @@ connection-bound, and the source shows no safe redundancy to remove:
 * No duplicate computation exists in the tooltip, supplier or recipe-map regions.
 * The dominant tooltip region depends on `ClientLevel` and `Player`, so cross-connection reuse
   cannot be validated from an ingredient fingerprint.
-* The only provable waste, 24% of ingredients being indexed then removed, happens after the index is
-  built and is driven by plugin calls.
+* About a quarter of manager membership disappears after index construction, driven by plugin calls;
+  the removal request count is not the same as the successful unique removal count.
 
-Consequently no optimization is implemented, and the measured reconnect is what makes that a
-conclusion rather than a shrug: the reuse hypothesis is disproved for the same-server case, and the
-remaining waste would require reordering JEI's startup.
+Cross-generation reuse and deferring the initial search index remain ruled out as the first patch.
+The current JETOptimizer prototype instead batches visibility notifications within each existing
+runtime removal call. It preserves the lifecycle and changes only notification grouping for the exact
+JEI internal listener pair; an extra listener or failed probe keeps JEI's original per-ingredient
+notifications. JEI could make this optimization upstream by adding a bulk removal/visibility update
+path to `IngredientManager` / `IngredientBlacklistInternal`, where it can own listener semantics
+without an external Mixin.
 
-What is needed next is still measurement, not a change:
+The 2026-10-07 cold/reconnect run confirmed the feature gate and fallback behavior. The post-index
+visibility path batched 16,458 entries into 28 calls in generation 1, and 18,493 into 28 calls on
+reconnect; six pre-filter calls per generation used the original single-item path. The final manager
+counts remained consistent with JEI startup. Exact successful-removal timing split is the remaining
+counter gap; there is no need to defer the initial search index to demonstrate the tested listener
+batching transformation.
 
-1. Hook `Sending Runtime`, the largest unattributed region at 2.750-10.430 s and the entire cause of
-   the local-world run's apparent 37 s.
-2. Add per-source attribution to `Ingredient registration`, which swung 4.488 s → 2.638 s → 3.737 s
-   with no source detail.
-3. Re-run the same-server reconnect after those hooks land. Both remaining regions are large enough
-   to be worth measuring before any change is contemplated.
+Other large targets remain:
+
+1. A generic compact search-index representation for the 524k tooltip candidates and 604k+ baked
+   keys; tooltip generation itself remains connection-bound and is not cached across generations.
+2. RecipeMap relationship building, after verifying the mutability and lookup requirements of JEI's
+   final maps.
+3. Vanilla ingredient registry enumeration, after isolating the actual ItemStack factory cost.

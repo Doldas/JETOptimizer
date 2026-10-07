@@ -152,6 +152,7 @@ public final class JETOptimizerProfiler {
         session.startedAtEpochMillis = System.currentTimeMillis();
         session.serverAddress = currentServerAddress();
         session.previousSnapshot = previousGenerationSnapshot;
+        session.bulkRuntimeRemovalVisibilityEnabled = RuntimeRemovalVisibilityBatch.enabled();
         session.observedHooks.add("JeiStarter.start");
         if (sync != null) {
             session.observedHooks.add("RecipesUpdatedEvent");
@@ -376,6 +377,40 @@ public final class JETOptimizerProfiler {
         } else {
             session.runtimeIngredientRemoveCalls++;
             session.runtimeIngredientRemoveRequests += requestedCount;
+        }
+    }
+
+    public static void recordSuccessfulRuntimeIngredientRemoval() {
+        Session session = ACTIVE_SESSION.get();
+        if (session != null && session.profiling) {
+            session.runtimeIngredientRemovedEntries++;
+        }
+    }
+
+    public static void recordRuntimeRemovalVisibilityBatch(
+        int requestedIngredients,
+        int individualNotifications,
+        int singleDispatches,
+        int batchedIngredients,
+        int batchedDispatches,
+        boolean listenersCompatible,
+        long elapsedNanos
+    ) {
+        Session session = ACTIVE_SESSION.get();
+        if (session == null || !session.profiling) {
+            return;
+        }
+        session.runtimeRemovalVisibilityCalls++;
+        session.runtimeRemovalVisibilityRequested += requestedIngredients;
+        session.runtimeRemovalVisibilityIndividualNotifications += individualNotifications;
+        session.runtimeRemovalVisibilitySingleDispatches += singleDispatches;
+        session.runtimeRemovalVisibilityBatchedIngredients += batchedIngredients;
+        session.runtimeRemovalVisibilityBatchedDispatches += batchedDispatches;
+        session.runtimeRemovalVisibilityNanos += elapsedNanos;
+        if (listenersCompatible) {
+            session.runtimeRemovalVisibilityOptimizedCalls++;
+        } else {
+            session.runtimeRemovalVisibilityFallbackCalls++;
         }
     }
 
@@ -1017,6 +1052,11 @@ public final class JETOptimizerProfiler {
             describeJoinKind(session),
             session.serverAddress,
             totalNanos,
+            session.stageNanos.getOrDefault(STAGE_SEARCH_INDEX, 0L),
+            tooltipSearchNanos(session),
+            session.stageNanos.getOrDefault(STAGE_INGREDIENT_REGISTRATION, 0L),
+            session.pluginPhaseNanos.getOrDefault(PHASE_REGISTERING_RECIPES, 0L),
+            session.pluginNanosByPhase.getOrDefault(new PluginCallbackKey(PHASE_SENDING_RUNTIME, "kubejs:jei"), 0L),
             SearchTextOptimization.enabled(),
             session.searchTextPipelineNanos,
             session.searchTextPipelineCalls,
@@ -1036,6 +1076,7 @@ public final class JETOptimizerProfiler {
             session.kubeJsItemRemovalRequestEntries,
             session.kubeJsItemRemovalFallbackFilters + session.kubeJsItemRemovalFullScanFallbacks,
             Map.copyOf(session.optimizationFallbacks),
+            runtimeRemovalVisibilitySummary(session),
             structuralChangeSummary(session)
         ));
 
@@ -1072,12 +1113,87 @@ public final class JETOptimizerProfiler {
             } else {
                 lines.append("    KubeJS item-removal ID index: unavailable (callback not observed)\n");
             }
+            lines.append("    runtime removal visibility batching: ")
+                .append(record.runtimeRemovalVisibilitySummary()).append('\n');
             lines.append("    fallbacks to JEI implementation: ")
                 .append(record.fallbacks().isEmpty() ? "none" : record.fallbacks()).append('\n');
             lines.append("    structural correctness vs previous generation: ")
                 .append(record.structuralChangeSummary()).append('\n');
         }
+        appendColdReconnectComparison(lines);
         JETOptimizer.LOGGER.info(lines.toString().stripTrailing());
+    }
+
+    private static long tooltipSearchNanos(Session session) {
+        long total = 0L;
+        for (long[] values : session.tooltipNanosByType.values()) {
+            total += values[0];
+        }
+        return total;
+    }
+
+    private static void appendColdReconnectComparison(StringBuilder lines) {
+        OptimizationRecord cold = null;
+        for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
+            if ("first join in this process".equals(record.joinKind())
+                && !INTEGRATED_TARGET.equals(record.serverAddress())
+                && !UNKNOWN_TARGET.equals(record.serverAddress())) {
+                cold = record;
+                break;
+            }
+        }
+        OptimizationRecord reconnect = null;
+        if (cold != null) {
+            for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
+                if ("in-game reconnect to a remote server".equals(record.joinKind())
+                    && cold.serverAddress().equals(record.serverAddress())) {
+                    reconnect = record;
+                }
+            }
+        }
+
+        lines.append("[JETOptimizer] === COLD vs RECONNECT ===\n");
+        if (cold == null || reconnect == null) {
+            lines.append("  unavailable (matching cold remote join and same-server reconnect not both profiled)\n");
+            return;
+        }
+        lines.append(String.format(Locale.ROOT, "  %-22s %10s %10s%n", "", "COLD (s)", "RECONNECT (s)"));
+        appendComparisonRow(lines, "JEI total", cold.totalNanos(), reconnect.totalNanos());
+        appendComparisonRow(lines, "Search index", cold.searchNanos(), reconnect.searchNanos());
+        appendComparisonRow(lines, "Tooltip extraction", cold.tooltipNanos(), reconnect.tooltipNanos());
+        appendComparisonRow(lines, "Ingredient registration", cold.ingredientRegistrationNanos(), reconnect.ingredientRegistrationNanos());
+        appendComparisonRow(lines, "Recipe registration", cold.recipeRegistrationNanos(), reconnect.recipeRegistrationNanos());
+        appendComparisonRow(lines, "KubeJS callback", cold.kubeJsNanos(), reconnect.kubeJsNanos());
+    }
+
+    private static void appendComparisonRow(StringBuilder lines, String label, long coldNanos, long reconnectNanos) {
+        lines.append(String.format(Locale.ROOT, "  %-22s %10.3f %10.3f%n", label,
+            coldNanos / 1_000_000_000.0, reconnectNanos / 1_000_000_000.0));
+    }
+
+    private static String runtimeRemovalVisibilitySummary(Session session) {
+        String lifecycle = "; filter base entries " + session.filterEntriesAtGuiBuild
+            + "; removal requests/effective index removals " + session.runtimeIngredientRemoveRequests
+            + "/" + session.runtimeIngredientRemovedEntries
+            + "; final manager entries " + session.finalManagerRaw;
+        if (session.runtimeRemovalVisibilityCalls == 0) {
+            return session.bulkRuntimeRemovalVisibilityEnabled
+                ? "enabled; no removal notifications observed" + lifecycle
+                : "disabled; dispatch counters unavailable" + lifecycle;
+        }
+        return (session.bulkRuntimeRemovalVisibilityEnabled ? "enabled" : "disabled")
+            + "; calls " + session.runtimeRemovalVisibilityCalls
+            + "; request entries " + session.runtimeRemovalVisibilityRequested
+            + "; individual notifications " + session.runtimeRemovalVisibilityIndividualNotifications
+            + "; original single dispatches " + session.runtimeRemovalVisibilitySingleDispatches
+            + "; batched entries/dispatches " + session.runtimeRemovalVisibilityBatchedIngredients
+            + "/" + session.runtimeRemovalVisibilityBatchedDispatches
+            + "; dispatches avoided " + Math.max(0, session.runtimeRemovalVisibilityIndividualNotifications
+                - session.runtimeRemovalVisibilitySingleDispatches - session.runtimeRemovalVisibilityBatchedDispatches)
+            + "; optimized/fallback calls " + session.runtimeRemovalVisibilityOptimizedCalls
+            + "/" + session.runtimeRemovalVisibilityFallbackCalls
+            + "; wrapper time " + formatSeconds(session.runtimeRemovalVisibilityNanos)
+            + lifecycle;
     }
 
     private static String structuralChangeSummary(Session session) {
@@ -1198,6 +1314,17 @@ public final class JETOptimizerProfiler {
         private int runtimeIngredientAddRequests;
         private int runtimeIngredientRemoveCalls;
         private int runtimeIngredientRemoveRequests;
+        private int runtimeIngredientRemovedEntries;
+        private boolean bulkRuntimeRemovalVisibilityEnabled;
+        private int runtimeRemovalVisibilityCalls;
+        private int runtimeRemovalVisibilityOptimizedCalls;
+        private int runtimeRemovalVisibilityFallbackCalls;
+        private int runtimeRemovalVisibilityRequested;
+        private int runtimeRemovalVisibilityIndividualNotifications;
+        private int runtimeRemovalVisibilitySingleDispatches;
+        private int runtimeRemovalVisibilityBatchedIngredients;
+        private int runtimeRemovalVisibilityBatchedDispatches;
+        private long runtimeRemovalVisibilityNanos;
 
         private Session(long startedAt, PendingRecipeSync recipeSync, boolean profiling, boolean pluginProfiling) {
             this.startedAt = startedAt;
@@ -1252,6 +1379,11 @@ public final class JETOptimizerProfiler {
             values.put("ingredient manager raw final", (long) finalManagerRaw);
             values.put("runtime ingredient add requests", (long) runtimeIngredientAddRequests);
             values.put("runtime ingredient remove requests", (long) runtimeIngredientRemoveRequests);
+            values.put("runtime ingredient entries removed", (long) runtimeIngredientRemovedEntries);
+            values.put("runtime removal visibility individual notifications", (long) runtimeRemovalVisibilityIndividualNotifications);
+            values.put("runtime removal visibility single dispatches", (long) runtimeRemovalVisibilitySingleDispatches);
+            values.put("runtime removal visibility batched dispatches", (long) runtimeRemovalVisibilityBatchedDispatches);
+            values.put("runtime removal visibility batched ingredients", (long) runtimeRemovalVisibilityBatchedIngredients);
             searchPrefixMetrics.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .forEach(entry -> {
@@ -1343,6 +1475,11 @@ public final class JETOptimizerProfiler {
         String joinKind,
         String serverAddress,
         long totalNanos,
+        long searchNanos,
+        long tooltipNanos,
+        long ingredientRegistrationNanos,
+        long recipeRegistrationNanos,
+        long kubeJsNanos,
         boolean fastSearchText,
         long pipelineNanos,
         int pipelineCalls,
@@ -1362,6 +1499,7 @@ public final class JETOptimizerProfiler {
         int kubeJsItemRemovalRequestEntries,
         int kubeJsItemRemovalFallbacks,
         Map<String, Integer> fallbacks,
+        String runtimeRemovalVisibilitySummary,
         String structuralChangeSummary
     ) {
     }

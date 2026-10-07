@@ -1,7 +1,7 @@
 # JEI startup performance analysis
 
 **Source baseline:** JEI 19.57.0.449, Minecraft 1.21.1, NeoForge 21.1.x.
-**Current goal:** explain the major JEI startup regions with measurements and remove provably dead work with fail-open, gated optimizations. The newest result, a 2.6 s KubeJS fix that is fully accounted for, is [KubeJS `onRuntimeAvailable` root cause and fix](#kubejs-onruntimeavailable-root-cause-and-fix-category-map-skip).
+**Current goal:** make measured JEI data-processing work cheaper with generation-local identity and bulk operations, while preserving the public JEI lifecycle and falling back whenever a fast path cannot prove its preconditions. The measured KubeJS category-map removal and the new runtime-removal notification prototype are described below.
 
 **Read this first:** the wall-clock numbers below are single launches on a machine whose same-build spread is 1.1-1.7 s. Structural counters are reproducible to the unit; timings are not. Jump to [The 30-second login delay is JEI](#the-30-second-login-delay-is-jei) for the headline result, then [Eight Prism/ATM10A launches](#eight-prismatm10a-launches-on-the-same-saved-test-server) for the launch table and what is still unmeasured.
 
@@ -41,10 +41,11 @@ The resulting map is consumed only by two event posts that are guarded by
 loop that runs only when `KubeJSJEIPlugin.remote != null`. In this pack both listeners are absent
 and `remote` is null, so the 2.6 s are **dead work on every join**.
 
-The fix is a fail-open `@Redirect` on `IRecipeCategoriesLookup.get()`: when neither removal event
-has a listener and `remote == null` (both read reflectively), it returns `Stream.empty()`, so the
-`toMap` collect produces an empty map and `onRuntimeAvailable` continues unchanged. Any reflection
-failure, or a present listener, builds the full map exactly as before.
+The fix is a gated, fail-open `@Redirect` on `IRecipeCategoriesLookup.get()`: when
+`enabled`, `experimentalOptimizations`, and `skipUnusedKubeJsCategoryMap` are true, neither removal
+event has a listener and `remote == null` (both read reflectively), it returns `Stream.empty()`, so
+the `toMap` collect produces an empty map and `onRuntimeAvailable` continues unchanged. Any disabled
+flag, reflection failure, or present listener builds the full map exactly as before.
 
 Measured effect, cold remote join (generation 1, same server, same harness):
 
@@ -58,6 +59,112 @@ Measured effect, cold remote join (generation 1, same server, same harness):
 The 2.6 s did **not** migrate into the GUI stage: GUI runtime construction and the ingredient
 filter are unchanged, so no other JEI startup path computes the visible-category cache in this
 pack. The saving is net, and behaviour is preserved whenever the map is actually consumed.
+
+## Ingredient lifecycle and bulk runtime-removal visibility prototype
+
+JEI 19.57.0.449 constructs the ingredient filter before runtime callbacks:
+
+```text
+JeiStarter.start
+  -> PluginCaller "Registering Runtime"
+     -> NeoForgeGuiPlugin.registerRuntime
+        -> JeiGuiStarter.start
+           -> IngredientListElementFactory.createBaseList (68,186 entries in the measured pack)
+           -> IngredientFilter constructor
+              -> createElementSearch (tooltip/search index is built here)
+  -> construct IJeiRuntime
+  -> PluginCaller "Sending Runtime"
+     -> KubeJSJEIPlugin.onRuntimeAvailable
+        -> removeIngredientsAtRuntime calls
+```
+
+`JeiGuiStarter.start` creates the filter and installs it in `IRuntimeRegistration` before the
+`registerRuntime` phase returns. JEI then exposes that runtime to `onRuntimeAvailable` plugins.
+Moving `IngredientFilter` construction after those callbacks would change this API ordering: runtime
+plugins can query the already-installed filter. This prototype therefore preserves JEI's order.
+
+The measured structure is: 68,186 base-list entries, 17,729 requested removal entries across 34
+manager calls, one requested addition, and 51,744 manager entries after callbacks. The net manager
+decrease is 16,442; requested removals are not the same as successful unique removals because requests
+can repeat or refer to entries no longer present. `ListElementInfo.getTooltipStrings` and every enabled
+`PrefixInfo` source run while `IngredientFilter` is constructed, before the removal callbacks, so
+every entry in the base list has already paid search/tooltip indexing cost. The report now counts
+successful `RegisteredIngredientIndex` removals separately from removal requests. In this ATM10A run,
+the pre-filter manager and filter base-list cardinalities both equal 68,186, so successful removals
+are comparable to the indexed population. No second UID/identity set is retained solely for profiling;
+if another pack's base-list cardinality differs, the report does not claim an exact intersection.
+
+The safe reachable prototype targets repeated JEI visibility updates rather than reordering that
+lifecycle. In JEI source, `IngredientManager.removeIngredientsAtRuntime` removes registered UIDs, then
+`IngredientBlacklistInternal.onIngredientsRemoved` sends one visibility notification per affected
+ingredient. `IngredientFilter` processes those single-item callbacks individually and invalidates its
+source-list cache/notifies listeners for each changed item; `RecipeManagerInternal` also invalidates
+its visible-category cache per callback.
+
+With `enabled`, `experimentalOptimizations`, and `bulkRuntimeRemovalVisibility` enabled, the mixin
+buffers those per-removal-call notifications by their exact `UidContext` set, then uses JEI's existing
+collection callback once per group. The fast path requires that `IngredientVisibility` contains
+exactly JEI's `IngredientFilter` and `RecipeManagerInternal` listeners. An extra listener, failed
+reflection, or unavailable target delegates every notification to the original JEI method. No
+ingredient membership, UIDs, recipes, or visibility contexts are changed. The buffer retains only
+references for one synchronous removal call and is released in `finally`.
+
+The optimization report includes requested entries, successful registry-index removals, original
+single-item visibility dispatches, batched entries/dispatches, optimized/fallback calls, and wrapper
+time. The first cold-join + same-process reconnect validation is below.
+
+## ATM10A cold-join and reconnect validation (2026-10-07)
+
+The captured log is preserved at `/tmp/opencode/atm10a-optimizer-test-20261007.log`. Both generations
+used `play.gamitronservers.com`; the Mixin hooks applied and the optimized counts were emitted.
+
+| Measure | Cold, generation 1 | Same-process reconnect, generation 2 |
+|---|---:|---:|
+| Total JEI start | 27.298 s | 23.178 s |
+| Ingredient search index | 7.905 s | 6.493 s |
+| Tooltip extraction | 7.020 s | 5.535 s |
+| Ingredient registration | 3.696 s | 3.393 s |
+| Recipe registration phase | 11.102 s | 9.514 s |
+| KubeJS callback | 0.002 s | <0.001 s |
+| IngredientFilter base-list entries | 68,186 | 70,223 |
+| Runtime removal requests | 17,729 | 19,764 |
+| Successful registered-index removals | 17,600 | 19,635 |
+| Final manager entries | 51,744 | 51,746 |
+
+These are not a controlled A/B comparison: the reconnect had 2,037 more base-list ingredients,
+264 more recipes and 2,035 more removal requests. Do not attribute the 4.120 s total-time difference
+to the new batching optimization.
+
+The timestamps locate the removal/index ordering precisely. Six calls totaling 1,271 requested entries
+occurred before `JeiGuiStarter.start` began building the ingredient list at 21:15:07.788. The other 28
+calls totaling 16,458 item entries occurred after JEI logged `Added 68,186 ingredients` at 21:15:16.232,
+after the filter/search index was complete. Thus **16,458 removal requests arrived after indexing**;
+the final manager has 16,442 fewer entries than the filter base list, with one runtime addition request
+in between. Successful index removals total 17,600 across the whole JEI startup, including those before
+filter construction. The run does not directly split successful map removals at the index boundary;
+the post-index effective removal count is 16,442–16,443 depending on whether the one requested addition
+was accepted. In either case, approximately 16.4k indexed ItemStacks were then removed.
+
+For scale, JEI performed 67,412 item-stack tooltip extractions taking 7.012 s on the cold generation.
+Applying that average cost to ~16.4k post-index removals estimates roughly **1.71 s of tooltip work**
+on entries that are later removed. This is an average-based estimate, not per-ingredient timing. Those
+entries also traversed the enabled `PrefixInfo` sources and were inserted into the baked search storage;
+the log reports 524,035 tooltip candidate strings and 604,695 baked keys for the whole cold index.
+
+The batching fast path applied to 28 of 34 removal calls in each generation. Cold: 16,458 entries were
+sent through 28 collection notifications; 1,248 notifications across six calls used the original
+single-item path. That is **16,430 fewer listener dispatches**. Reconnect: 18,493 entries in 28
+collection notifications, the same 1,248 singles, and 18,465 dispatches avoided. The six fallbacks
+line up with the six calls before `JeiGuiStarter.start`, when the filter listener was not yet installed;
+the listener-precondition guard correctly kept those calls on JEI's original path. Wrapper time was
+45 ms cold and 35 ms reconnect; this includes the wrapped removal/notification work and is not itself
+a savings measurement.
+
+KubeJS's unused category-map skip was confirmed in both generations and reduced its callback to about
+2 ms / below 1 ms. The KubeJS remote item-removal index had zero filter trees and zero candidates
+because `remote` was null. No JETOptimizer Mixin failures were found. The log does contain unrelated
+CompactMachines recipe-plugin exceptions caught by JEI and a Polymorph/JEI Mixin incompatibility that
+disabled Polymorph's JEI integration; neither prevented JEI startup or came from JETOptimizer.
 
 ## ATM10 Aeronautics baseline supplied for this iteration
 
