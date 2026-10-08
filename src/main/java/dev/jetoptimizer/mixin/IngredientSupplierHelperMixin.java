@@ -2,6 +2,9 @@ package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
 import dev.jetoptimizer.RecipeLayoutBuilderPool;
+import dev.jetoptimizer.PersistentRecipeCache;
+import mezz.jei.api.recipe.category.IRecipeCategory;
+import mezz.jei.library.ingredients.RecipeIngredientSupplier;
 import mezz.jei.api.runtime.IIngredientManager;
 import mezz.jei.library.gui.recipes.supplier.builder.IngredientSupplierBuilder;
 import org.spongepowered.asm.mixin.Mixin;
@@ -27,13 +30,21 @@ abstract class IngredientSupplierHelperMixin {
         return RecipeLayoutBuilderPool.acquire(ingredientManager);
     }
 
-    @Inject(method = "getIngredientSupplier", at = @At("HEAD"), remap = false)
-    private static void jetoptimizer$beginCategoryRecipeLayout(CallbackInfoReturnable<?> callbackInfo) {
+    @Inject(method = "getIngredientSupplier", at = @At("HEAD"), cancellable = true, remap = false)
+    private static <T> void jetoptimizer$beginCategoryRecipeLayout(T recipe, IRecipeCategory<T> category,
+            IIngredientManager manager, CallbackInfoReturnable<RecipeIngredientSupplier> callbackInfo) {
         JETOptimizerProfiler.beginRecipeLayoutBuild();
+        RecipeIngredientSupplier cached = PersistentRecipeCache.lookup(recipe, category);
+        if (cached != null) {
+            JETOptimizerProfiler.finishRecipeLayoutBuild();
+            callbackInfo.setReturnValue(cached);
+        }
     }
 
     @Inject(method = "getIngredientSupplier", at = @At("RETURN"), remap = false)
-    private static void jetoptimizer$finishCategoryRecipeLayout(CallbackInfoReturnable<?> callbackInfo) {
+    private static <T> void jetoptimizer$finishCategoryRecipeLayout(T recipe, IRecipeCategory<T> category,
+            IIngredientManager manager, CallbackInfoReturnable<RecipeIngredientSupplier> callbackInfo) {
+        PersistentRecipeCache.capture(recipe, category, callbackInfo.getReturnValue());
         JETOptimizerProfiler.finishRecipeLayoutBuild();
     }
 }

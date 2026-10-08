@@ -12,11 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** Preloads pure search tables at client setup; never blocks a join on disk I/O. */
 public final class PersistentSearchIndexCache {
-    private static final ExecutorService IO = Executors.newSingleThreadExecutor(task -> {
-        Thread thread = new Thread(task, "jetoptimizer-disk-cache");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static final ExecutorService IO = CacheDiskExecutor.INSTANCE;
     private static volatile CompletableFuture<DiskSearchIndexStore> preloaded;
     private static Path file;
     private static volatile Boolean cachedEnabled;

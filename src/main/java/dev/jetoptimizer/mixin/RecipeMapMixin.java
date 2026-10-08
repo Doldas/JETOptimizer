@@ -2,6 +2,11 @@ package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
 import dev.jetoptimizer.RecipeStartupOptimization;
+import dev.jetoptimizer.PersistentRecipeCache;
+import mezz.jei.api.ingredients.IIngredientHelper;
+import mezz.jei.api.ingredients.ITypedIngredient;
+import mezz.jei.api.ingredients.subtypes.UidContext;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import mezz.jei.api.ingredients.IIngredientSupplier;
 import mezz.jei.api.recipe.RecipeIngredientRole;
 import mezz.jei.api.recipe.RecipeType;
@@ -40,6 +45,12 @@ abstract class RecipeMapMixin {
             jetoptimizer$finishRecipeMapInsertion(callbackInfo);
             callbackInfo.cancel();
         }
+    }
+
+    @Redirect(method = "addRecipeIngredient", at = @At(value = "INVOKE",
+            target = "Lmezz/jei/api/ingredients/IIngredientHelper;getUid(Lmezz/jei/api/ingredients/ITypedIngredient;Lmezz/jei/api/ingredients/subtypes/UidContext;)Ljava/lang/Object;"), remap = false)
+    private <T> Object jetoptimizer$reuseSharedRecipeUid(IIngredientHelper<T> helper, ITypedIngredient<T> ingredient, UidContext context) {
+        return PersistentRecipeCache.recipeUid(helper, ingredient, context);
     }
 
     @Inject(method = "addRecipe", at = @At("RETURN"), remap = false)

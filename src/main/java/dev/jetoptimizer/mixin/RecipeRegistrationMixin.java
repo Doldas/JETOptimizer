@@ -1,6 +1,7 @@
 package dev.jetoptimizer.mixin;
 
 import dev.jetoptimizer.JETOptimizerProfiler;
+import dev.jetoptimizer.PersistentRecipeCache;
 import mezz.jei.api.recipe.RecipeType;
 import mezz.jei.library.recipes.RecipeManagerInternal;
 import org.spongepowered.asm.mixin.Mixin;
@@ -25,7 +26,7 @@ abstract class RecipeRegistrationMixin {
     )
     private static void jetoptimizer$timeRecipeBatch(RecipeManagerInternal recipeManager, RecipeType recipeType, List recipes) {
         long startedAt = JETOptimizerProfiler.beginRecipeAddBatch(recipes.size());
-        try {
+        try (var batch = PersistentRecipeCache.prepareBatch(recipeManager, recipeType, recipes)) {
             recipeManager.addRecipes(recipeType, recipes);
         } finally {
             JETOptimizerProfiler.finishRecipeAddBatch(startedAt);

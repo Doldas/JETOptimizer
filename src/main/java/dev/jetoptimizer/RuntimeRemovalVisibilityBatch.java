@@ -9,6 +9,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.LinkedHashMap;
+import java.util.stream.Collectors;
 
 public final class RuntimeRemovalVisibilityBatch {
     private static final String INGREDIENT_FILTER = "mezz.jei.gui.ingredients.IngredientFilter";
@@ -71,19 +75,8 @@ public final class RuntimeRemovalVisibilityBatch {
             if (!(value instanceof List<?> listeners) || listeners.size() != 2) {
                 return false;
             }
-            boolean foundFilter = false;
-            boolean foundRecipeManager = false;
-            for (Object listener : listeners) {
-                String className = listener.getClass().getName();
-                if (INGREDIENT_FILTER.equals(className) && !foundFilter) {
-                    foundFilter = true;
-                } else if (RECIPE_MANAGER.equals(className) && !foundRecipeManager) {
-                    foundRecipeManager = true;
-                } else {
-                    return false;
-                }
-            }
-            return foundFilter && foundRecipeManager;
+            return Set.of(INGREDIENT_FILTER, RECIPE_MANAGER).equals(listeners.stream()
+                    .map(listener -> listener.getClass().getName()).collect(Collectors.toSet()));
         } catch (Throwable ignored) {
             return false;
         }
@@ -94,7 +87,7 @@ public final class RuntimeRemovalVisibilityBatch {
         private final int requestedIngredients;
         private boolean listenersCompatible;
         private final long startedAt = System.nanoTime();
-        private final List<Group> groups = new ArrayList<>(4);
+        private final Map<Integer, Group> groups = new LinkedHashMap<>(4);
         private int individualNotifications;
         private int singleDispatches;
         private int batchedItems;
@@ -120,22 +113,8 @@ public final class RuntimeRemovalVisibilityBatch {
                 return false;
             }
 
-            int contextMask = 0;
-            for (UidContext context : contexts) {
-                contextMask |= 1 << context.ordinal();
-            }
-
-            Group group = null;
-            for (Group candidate : groups) {
-                if (candidate.contextMask == contextMask) {
-                    group = candidate;
-                    break;
-                }
-            }
-            if (group == null) {
-                group = new Group(contextMask, EnumSet.copyOf(contexts));
-                groups.add(group);
-            }
+            int contextMask = contexts.stream().mapToInt(context -> 1 << context.ordinal()).reduce(0, (first, second) -> first | second);
+            Group group = groups.computeIfAbsent(contextMask, mask -> new Group(mask, EnumSet.copyOf(contexts)));
             group.ingredients.add(ingredient);
             batchedItems++;
             return true;
@@ -165,10 +144,10 @@ public final class RuntimeRemovalVisibilityBatch {
             if (visibility == null) {
                 return;
             }
-            for (Group group : groups) {
+            groups.values().forEach(group -> {
                 notifyListeners(group);
                 batchedDispatches++;
-            }
+            });
             groups.clear();
         }
 

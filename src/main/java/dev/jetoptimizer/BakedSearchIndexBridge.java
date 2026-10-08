@@ -37,11 +37,9 @@ final class BakedSearchIndexBridge {
             throw new IllegalArgumentException("Search key/value size mismatch");
         }
         Set<T> unique = Collections.newSetFromMap(new IdentityHashMap<>());
-        boolean duplicates = false;
-        for (T value : values) {
-            Objects.requireNonNull(value);
-            if (!unique.add(value)) duplicates = true;
-        }
+        values.forEach(Objects::requireNonNull);
+        unique.addAll(values);
+        boolean duplicates = unique.size() != values.size();
         return (BakedSubstringIndex<T>) CONSTRUCTOR.newInstance(
                 keys.toArray(String[]::new), values.toArray(), snapshot.grams(), duplicates);
     }

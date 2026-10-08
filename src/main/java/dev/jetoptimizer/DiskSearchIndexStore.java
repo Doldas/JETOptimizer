@@ -41,9 +41,7 @@ final class DiskSearchIndexStore {
             // JEI's completed index never mutates its private gram table or posting arrays.
             // Retaining this table retains only longs and ints, never its keys or runtime values.
             this.grams = grams;
-            long size = 40;
-            for (int[] postings : grams.values()) size += 12L + 4L * postings.length;
-            this.bytes = size;
+            this.bytes = 40 + grams.values().stream().mapToLong(postings -> 12L + 4L * postings.length).sum();
         }
 
         Key key() { return key; }

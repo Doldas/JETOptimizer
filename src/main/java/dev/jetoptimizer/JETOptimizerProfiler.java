@@ -216,9 +216,7 @@ public final class JETOptimizerProfiler {
         session.observedHooks.add(stageName);
         // A phase that opens a stage inside itself is not an independent region, so it must not be
         // counted again on top of that stage.
-        for (PluginPhaseFrame frame : session.pluginPhaseStack) {
-            frame.containsStage = true;
-        }
+        session.pluginPhaseStack.forEach(frame -> frame.containsStage = true);
         switch (stageName) {
             case STAGE_SEARCH_INDEX -> session.resetSearchTracking();
             case "Ingredient sorting" -> session.observedHooks.add("IngredientSorter.sortIngredients");
@@ -882,7 +880,7 @@ public final class JETOptimizerProfiler {
             measured += recipeCallbacksWithoutAdd + session.recipeAddNanos;
             lines.append("  Recipe addRecipes batches/recipes: ")
                     .append(session.recipeAddBatches).append('/').append(session.recipeAddRecipeCount).append('\n');
-            appendTiming(lines, "    IngredientSupplierHelper category setRecipe", session.recipeLayoutNanos);
+            appendTiming(lines, "    IngredientSupplierHelper preparation (native or cached)", session.recipeLayoutNanos);
             lines.append("      calls: ").append(session.recipeLayoutCalls).append('\n');
             lines.append("      fast recipe suppliers: ").append(session.fastRecipeSupplierCalls).append('\n');
             lines.append("      empty recipe-role indexes avoided: ").append(session.emptyRecipeRoleCalls).append('\n');
@@ -1182,32 +1180,18 @@ public final class JETOptimizerProfiler {
     }
 
     private static long tooltipSearchNanos(Session session) {
-        long total = 0L;
-        for (long[] values : session.tooltipNanosByType.values()) {
-            total += values[0];
-        }
-        return total;
+        return session.tooltipNanosByType.values().stream().mapToLong(values -> values[0]).sum();
     }
 
     private static void appendColdReconnectComparison(StringBuilder lines) {
-        OptimizationRecord cold = null;
-        for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
-            if ("first join in this process".equals(record.joinKind())
-                    && !INTEGRATED_TARGET.equals(record.serverAddress())
-                    && !UNKNOWN_TARGET.equals(record.serverAddress())) {
-                cold = record;
-                break;
-            }
-        }
-        OptimizationRecord reconnect = null;
-        if (cold != null) {
-            for (OptimizationRecord record : OPTIMIZATION_RECORDS) {
-                if ("in-game reconnect to a remote server".equals(record.joinKind())
-                        && cold.serverAddress().equals(record.serverAddress())) {
-                    reconnect = record;
-                }
-            }
-        }
+        OptimizationRecord cold = OPTIMIZATION_RECORDS.stream()
+                .filter(record -> "first join in this process".equals(record.joinKind())
+                        && !INTEGRATED_TARGET.equals(record.serverAddress()) && !UNKNOWN_TARGET.equals(record.serverAddress()))
+                .findFirst().orElse(null);
+        OptimizationRecord reconnect = cold == null ? null : OPTIMIZATION_RECORDS.stream()
+                .filter(record -> "in-game reconnect to a remote server".equals(record.joinKind())
+                        && cold.serverAddress().equals(record.serverAddress()))
+                .reduce((earlier, later) -> later).orElse(null);
 
         lines.append("[JETOptimizer] === COLD vs RECONNECT ===\n");
         if (cold == null || reconnect == null) {
@@ -1259,18 +1243,11 @@ public final class JETOptimizerProfiler {
             return "unavailable (first connection profiled in this process)";
         }
         Map<String, Long> current = session.structuralValues();
-        long comparable = 0L;
-        long changed = 0L;
-        for (Map.Entry<String, Long> entry : previous.values().entrySet()) {
-            Long after = current.get(entry.getKey());
-            if (after == null) {
-                continue;
-            }
-            comparable++;
-            if (!after.equals(entry.getValue())) {
-                changed++;
-            }
-        }
+        var comparableEntries = previous.values().entrySet().stream()
+                .filter(entry -> current.get(entry.getKey()) != null).toList();
+        long comparable = comparableEntries.size();
+        long changed = comparableEntries.stream()
+                .filter(entry -> !entry.getValue().equals(current.get(entry.getKey()))).count();
         return changed + " of " + comparable + " comparable fields differ";
     }
 
