@@ -61,6 +61,14 @@ class KubeJSRemovalWorkflowTest {
         assertEquals(source.stream().filter(filter).toList(),removed(source,filter));
         assertEquals(source.stream().filter(filter).toList(),removed(source,filter));
     }
+    @Test void unknownCustomFilterKeepsItsExclusionPredicate() {
+        var source=new ArrayList<>(List.of(new ItemStack(Items.COAL),new ItemStack(Items.CHARCOAL),new ItemStack(Items.DIAMOND)));
+        var filter=net.neoforged.neoforge.common.crafting.DifferenceIngredient.of(
+            Ingredient.of(Items.COAL,Items.CHARCOAL),Ingredient.of(Items.CHARCOAL));
+        callback(source); KubeJSItemRemovalIndex.prepareItemFilter(filter,2);
+        assertEquals(source.stream().filter(filter).toList(),removed(source,filter));
+        assertEquals(List.of(source.getFirst()),source.stream().filter(filter).toList());
+    }
     @Test void callbackEndClearsPredicateShortcutForNextRuntime() {
         var source=new ArrayList<>(List.of(new ItemStack(Items.COAL))); callback(source);
         var filter=Ingredient.of(Items.COAL); KubeJSItemRemovalIndex.prepareItemFilter(filter,1); removed(source,filter);

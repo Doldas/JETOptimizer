@@ -17,7 +17,7 @@ resource limits, fallback behavior and authoritative server data.
 | Nested plugin callbacks leak cache state after failure | Nested recipe batch masks the outer context, restores it on exception and clears it on close |
 | Next recipe or next world inherits previous builder state | Actual JEI builders are emptied after immutable supplier extraction; manager changes, disconnect and another thread cannot reuse old builders |
 | Optimizations alter tooltip search text | Differential tests against Minecraft formatting and Java whitespace semantics, including every UTF-16 formatting follower and seeded random tooltip lines |
-| Item removals ignore components, ordering or earlier removals | Native Ingredient predicate comparisons over real ItemStacks and live source mutation; empty-filter and size-change fallback |
+| Item removals ignore components, ordering or earlier removals | Native Ingredient predicate comparisons over real ItemStacks and live source mutation; custom exclusion, empty-filter and size-change fallback |
 | Second KubeJS iterator hides unrelated items | Regression scenario consumes the fast iterator, then verifies a full scan still applies the original predicate |
 | Third-party visibility listener changes semantics | Actual visibility service retains individual dispatch for unknown listeners; isolated grouping tests check context masks, duplicates, order, flush-before-visible and idempotent finish |
 | JEI changes internal mixin targets silently | Every configured non-KubeJS mixin is inspected against actual dependency bytecode: target method selectors, shadow field/method types and injection invocation targets/ordinals |
