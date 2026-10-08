@@ -7,7 +7,8 @@ import mezz.jei.library.config.RecipeCategorySortingConfig;
 import mezz.jei.library.recipes.RecipeManagerInternal;
 import mezz.jei.library.plugins.vanilla.crafting.CraftingRecipeCategory;
 import mezz.jei.library.plugins.vanilla.ingredients.ItemStackHelper;
-import mezz.jei.library.util.IngredientSupplierHelper;
+import mezz.jei.library.gui.helpers.CraftingGridHelper;
+import mezz.jei.library.gui.recipes.supplier.builder.IngredientSupplierBuilder;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.*;
@@ -20,7 +21,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Real service batching, native category extraction, registry decoding and disk round-trip. */
+/** Real service batching, native crafting grid extraction, registry decoding and disk round-trip. */
 @Tag("workflow")
 class RecipeCacheWorkflowTest {
     @TempDir Path directory;
@@ -73,7 +74,13 @@ class RecipeCacheWorkflowTest {
         return new RecipeHolder<>(recipe.id(),recipe.value());
     }
     void nativeCapture(RecipeHolder<CraftingRecipe> recipe) {
-        PersistentRecipeCache.capture(recipe,category,IngredientSupplierHelper.getIngredientSupplier(recipe,category,ingredients));
+        // The native extension obtains its registry through Minecraft.level. Supply the test registry
+        // directly, then execute the same real JEI grid helper and ingredient builder operations.
+        var builder=new IngredientSupplierBuilder(ingredients);
+        var registry=RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+        CraftingGridHelper.INSTANCE.createAndSetOutputs(builder,List.of(recipe.value().getResultItem(registry)));
+        CraftingGridHelper.INSTANCE.createAndSetIngredients(builder,recipe.value().getIngredients(),0,0);
+        PersistentRecipeCache.capture(recipe,category,builder.buildIngredientSupplier());
     }
     @Test void firstJoinRelaunchAndServerPayloadChangeUseOnlyAuthoritativeRecipes() throws Exception {
         var first=recipe(Items.DIAMOND,1);

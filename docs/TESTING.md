@@ -29,7 +29,7 @@ resource limits, fallback behavior and authoritative server data.
 These are headless NeoForge unit and component workflow tests, not a launched Minecraft UI
 or live network server. Service tests inject detached loader inputs through an isolated
 reflection fixture because JEI's client loader and level are unavailable in the dedicated-server
-JUnit environment. The service itself, native categories, registry codecs, cache stores and
+JUnit environment. The service itself, native crafting grid helpers, registry codecs, cache stores and
 search disk executor execute normally. Fixtures restore their inputs and drain disk tasks;
 JUnit's default sequential execution must be retained for shared static service state.
 
@@ -39,7 +39,9 @@ and absent from the test dependencies; its plugin bytecode is not covered by tho
 Its removal service behavior is exercised directly. Visibility grouping tests inject a compatible
 listener decision to observe dispatch; a separate test uses the real compatibility gate for
 third-party fallback. Recipe workflow saves/reloads use the real store with explicit manifests;
-loader mod discovery and client launch preload remain client integration checks.
+loader mod discovery and client launch preload remain client integration checks. The crafting
+fixture supplies its registry directly to JEI's grid helper because the native category extension
+obtains its registry from Minecraft.level; it does not run that client-only lookup.
 
 ## Whole-project review and remaining client checks
 
