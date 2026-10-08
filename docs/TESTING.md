@@ -20,7 +20,7 @@ resource limits, fallback behavior and authoritative server data.
 | Item removals ignore components, ordering or earlier removals | Native Ingredient predicate comparisons over real ItemStacks and live source mutation; empty-filter and size-change fallback |
 | Second KubeJS iterator hides unrelated items | Regression scenario consumes the fast iterator, then verifies a full scan still applies the original predicate |
 | Third-party visibility listener changes semantics | Actual visibility service retains individual dispatch for unknown listeners; isolated grouping tests check context masks, duplicates, order, flush-before-visible and idempotent finish |
-| JEI changes internal mixin targets silently | Every configured non-KubeJS mixin is inspected against actual dependency bytecode: target method selectors, shadow field types and injection invocation targets/ordinals |
+| JEI changes internal mixin targets silently | Every configured non-KubeJS mixin is inspected against actual dependency bytecode: target method selectors, shadow field/method types and injection invocation targets/ordinals |
 | Tooltip setting changes between runtimes are ignored | Runtime switch scenario verifies restart refresh and master-disable precedence |
 | Worker failure, saturation or corrupt cache exhaust resources | Existing bounded-worker and disk format suites test ordered output, caller backpressure, failure completion, allocation limits and malformed input |
 
@@ -32,6 +32,10 @@ reflection fixture because JEI's client loader and level are unavailable in the 
 JUnit environment. The service itself, native crafting grid helpers, registry codecs, cache stores and
 search disk executor execute normally. Fixtures restore their inputs and drain disk tasks;
 JUnit's default sequential execution must be retained for shared static service state.
+
+Direct search mixin handler tests execute compiled HEAD callbacks with real cancellable Mixin
+callback objects. They check enabled cancellation/results and disabled/null fall-through;
+a separate class loader avoids applying those classes to client targets.
 
 Mixin contract tests inspect compiled annotations and dependency classfiles. They do **not**
 apply client mixins or prove cancellation/redirect behavior in a live client. KubeJS is optional

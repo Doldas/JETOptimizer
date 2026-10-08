@@ -69,6 +69,8 @@ class MixinContractTest {
                 if(shadow)assertTrue(hasField(target,field.name,field.desc),target.name+" no longer has shadow "+field.name+field.desc);
             }
             for(var handler:mixin.methods) for(var injection:annotations(handler.visibleAnnotations,handler.invisibleAnnotations)) {
+                if(injection.desc.endsWith("/Shadow;"))
+                    assertTrue(hasMethod(target,handler.name,handler.desc),target.name+" no longer has shadow method "+handler.name+handler.desc);
                 if(!Set.of("Inject","Redirect","WrapMethod","WrapOperation").stream().anyMatch(s -> injection.desc.endsWith("/"+s+";")))continue;
                 for(var selector:list(value(injection,"method",List.of()))) {
                     String method=(String)selector; int descriptor=method.indexOf('(');
@@ -88,6 +90,11 @@ class MixinContractTest {
     static boolean hasField(ClassNode node,String name,String descriptor) throws IOException {
         if(node.fields.stream().anyMatch(f -> f.name.equals(name)&&f.desc.equals(descriptor)))return true;
         return node.superName!=null && !node.superName.equals("java/lang/Object") && hasField(read(node.superName),name,descriptor);
+    }
+    static boolean hasMethod(ClassNode node,String name,String descriptor) throws IOException {
+        if(node.methods.stream().anyMatch(m -> m.name.equals(name)&&m.desc.equals(descriptor)))return true;
+        for(var implemented:node.interfaces) if(hasMethod(read(implemented),name,descriptor))return true;
+        return node.superName!=null && !node.superName.equals("java/lang/Object") && hasMethod(read(node.superName),name,descriptor);
     }
     static boolean matches(AbstractInsnNode instruction,String kind,String selector) {
         if(kind.startsWith("INVOKE") && instruction instanceof MethodInsnNode call)
