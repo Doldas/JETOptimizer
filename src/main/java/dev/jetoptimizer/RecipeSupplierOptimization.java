@@ -10,8 +10,9 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
-/** Avoids nested per-slot stream pipelines while retaining JEI's immutable snapshot constructors. */
+/** Bulk slot copies and ordered link streams retain JEI's immutable snapshot ownership. */
 public final class RecipeSupplierOptimization {
     private RecipeSupplierOptimization() {}
 
@@ -21,24 +22,18 @@ public final class RecipeSupplierOptimization {
     ) {
         Map<RecipeIngredientRole, List<ITypedIngredient<?>>> ingredientsByRole =
                 new EnumMap<>(RecipeIngredientRole.class);
-        for (var entry : slotsByRole.entrySet()) {
+        slotsByRole.forEach((role, builders) -> {
             List<ITypedIngredient<?>> ingredients = new ArrayList<>();
-            for (IngredientSlotBuilder slot : entry.getValue()) {
-                for (ITypedIngredient<?> ingredient : slot.getAllIngredients()) {
-                    if (ingredient != null) ingredients.add(ingredient);
-                }
-            }
-            ingredientsByRole.put(entry.getKey(), ingredients);
-        }
-        List<FocusLink> links = new ArrayList<>(linkedSlots.size());
-        for (List<IngredientSlotBuilder> linked : linkedSlots) {
-            List<FocusLink.Slot> slots = new ArrayList<>(linked.size());
-            for (IngredientSlotBuilder slot : linked) {
-                // Slot copies the list INCLUDING nulls, preserving linked rotation positions.
-                slots.add(new FocusLink.Slot(slot.getRole(), slot.getAllIngredients()));
-            }
-            links.add(new FocusLink(slots));
-        }
+            builders.stream().map(IngredientSlotBuilder::getAllIngredients).forEach(ingredients::addAll);
+            ingredients.removeIf(Objects::isNull);
+            ingredientsByRole.put(role, ingredients);
+        });
+        List<FocusLink> links = linkedSlots.stream()
+                .map(linked -> linked.stream()
+                        // Slot copies INCLUDING nulls, preserving linked rotation positions.
+                        .map(slot -> new FocusLink.Slot(slot.getRole(), slot.getAllIngredients()))
+                        .toList())
+                .map(FocusLink::new).toList();
         return new RecipeIngredientSupplier(ingredientsByRole, links);
     }
 }

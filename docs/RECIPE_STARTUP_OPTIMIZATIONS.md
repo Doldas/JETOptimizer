@@ -109,3 +109,5 @@ If preserving full tooltip search still leaves startup above 20 seconds, the rem
 of live tooltip rendering needs a separate solution. The existing `fastJoinSkipTooltipSearch` option
 can test the upper speed bound, but disables tooltip-word searching and is not a behavior-preserving
 15-second result. No background execution of mod tooltip callbacks or reconnect cache is added here.
+
+The subsequent [prepared recipe cache](PREPARED_RECIPE_CACHE.md) adds guarded persistence, shared ingredient blocks and bounded detached-data workers. It preserves the original synchronous JEI callback/batch order.

@@ -35,19 +35,13 @@ abstract class IngredientListElementFactoryMixin {
     }
 
     private static int countRawIngredients(IIngredientManager ingredientManager) {
-        int count = 0;
-        for (IIngredientType<?> type : ingredientManager.getRegisteredIngredientTypes()) {
-            count += rawIngredientCount(ingredientManager, type);
-        }
-        return count;
+        return ingredientManager.getRegisteredIngredientTypes().stream()
+                .mapToInt(type -> rawIngredientCount(ingredientManager, type)).sum();
     }
 
     private static int countTypedIngredients(IIngredientManager ingredientManager) {
-        int count = 0;
-        for (IIngredientType<?> type : ingredientManager.getRegisteredIngredientTypes()) {
-            count += typedIngredientCount(ingredientManager, type);
-        }
-        return count;
+        return ingredientManager.getRegisteredIngredientTypes().stream()
+                .mapToInt(type -> typedIngredientCount(ingredientManager, type)).sum();
     }
 
     private static <T> int rawIngredientCount(IIngredientManager manager, IIngredientType<T> type) {

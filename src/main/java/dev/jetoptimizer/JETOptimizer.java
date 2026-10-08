@@ -19,8 +19,11 @@ public final class JETOptimizer {
 
     public JETOptimizer(ModContainer modContainer, IEventBus modBus) {
         modContainer.registerConfig(ModConfig.Type.CLIENT, JETOptimizerConfig.SPEC);
-        modBus.addListener((FMLClientSetupEvent event) -> PersistentSearchIndexCache.initialize(
-                FMLPaths.GAMEDIR.get().resolve("cache/jetoptimizer/search-index-v1.bin")));
+        modBus.addListener((FMLClientSetupEvent event) -> {
+            var cache = FMLPaths.GAMEDIR.get().resolve("cache/jetoptimizer");
+            PersistentSearchIndexCache.initialize(cache.resolve("search-index-v1.bin"));
+            PersistentRecipeCache.initialize(cache.resolve("prepared-recipes-v1.bin.gz"));
+        });
         NeoForge.EVENT_BUS.addListener(JETOptimizerProfiler::onRecipesUpdated);
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingIn event) -> JETOptimizerProfiler.onLoggingIn());
         NeoForge.EVENT_BUS.addListener(JETOptimizerProfiler::onLoggingOut);

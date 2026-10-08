@@ -20,6 +20,8 @@ public final class JETOptimizerConfig {
     public static final ModConfigSpec.BooleanValue FAST_JOIN_SKIP_TOOLTIP_SEARCH;
     public static final ModConfigSpec.BooleanValue FAST_UNFOCUSED_RECIPE_VISIBILITY;
     public static final ModConfigSpec.BooleanValue FAST_RECIPE_SUPPLIERS;
+    public static final ModConfigSpec.BooleanValue PERSISTENT_RECIPE_CACHE;
+    public static final ModConfigSpec.IntValue RECIPE_CACHE_WORKERS;
     public static final ModConfigSpec SPEC;
 
     static {
@@ -29,19 +31,28 @@ public final class JETOptimizerConfig {
         PLUGIN_PROFILING = BUILDER.define("pluginProfiling", false);
         RECONNECT_CACHE = BUILDER
                 .comment("Persists JEI's deterministic substring lookup tables to disk and preloads them at client setup.",
-                        "Reuse requires matching ordered search strings; live ingredients, recipes and tooltips are not cached.",
+                        "Search tables require matching ordered strings; prepared-recipe caching has its own experimental option.",
+                        "Live world/player/recipe objects and tooltip results are never persisted.",
                         "Requires JEI 19.57.0.449. Enabling after client setup requires restarting Minecraft.")
                 .define("reconnectCache", true);
         DEBUG_CACHE = BUILDER.comment("Log search-table cache hits.").define("debugCache", false);
         DEBUG_CACHE_INVALIDATION = BUILDER.comment("Log search-table cache misses.").define("debugCacheInvalidation", false);
         EXPERIMENTAL_OPTIMIZATIONS = BUILDER.define("experimentalOptimizations", true);
         BUILDER.push("optimizations");
+        PERSISTENT_RECIPE_CACHE = BUILDER
+                .comment("Cache prepared native crafting/cooking/stonecutting recipe ingredients on disk.",
+                        "Verifies mod JAR hashes, current recipe payloads, resolved tags and category fuels.",
+                        "Custom recipes/categories/extensions retain JEI's original callbacks. Restart to enable preload.")
+                .define("persistentRecipeCache", true);
+        RECIPE_CACHE_WORKERS = BUILDER
+                .comment("Bounded workers for detached recipe fingerprints and mod file hashes; game callbacks stay on the client thread.")
+                .defineInRange("recipeCacheWorkers", 3, 2, 4);
         FAST_UNFOCUSED_RECIPE_VISIBILITY = BUILDER
                 .comment("Checks whether a linked-slot combination exists instead of building all visible indexes.",
                         "Only unfocused recipe-manager visibility checks use this path; focused queries and layouts use JEI.")
                 .define("fastUnfocusedRecipeVisibility", true);
         FAST_RECIPE_SUPPLIERS = BUILDER
-                .comment("Builds recipe ingredient snapshots with loops instead of nested per-slot stream pipelines.",
+                .comment("Builds recipe ingredient snapshots with bulk list operations and ordered streams.",
                         "Also skips temporary recipe-map indexes for empty roles of JEI's immutable suppliers.",
                         "Preserves recipe order, roles, blank linked entries and immutable snapshot ownership.")
                 .define("fastRecipeSuppliers", true);

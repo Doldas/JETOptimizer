@@ -5,6 +5,7 @@ import dev.jetoptimizer.RecipeLayoutBuilderPool;
 import dev.jetoptimizer.RecipeStartupOptimization;
 import dev.jetoptimizer.TooltipSearchOptimization;
 import dev.jetoptimizer.PersistentSearchIndexCache;
+import dev.jetoptimizer.PersistentRecipeCache;
 import mezz.jei.api.ingredients.IIngredientType;
 import mezz.jei.api.runtime.IJeiRuntime;
 import mezz.jei.common.Internal;
@@ -22,6 +23,7 @@ abstract class JeiStarterMixin {
     private void jetoptimizer$beginExperimentalRuntimeOptions(CallbackInfo callbackInfo) {
         TooltipSearchOptimization.beginRuntime();
         PersistentSearchIndexCache.beginRuntime();
+        PersistentRecipeCache.beginRuntime();
         RecipeStartupOptimization.reset();
         RecipeLayoutBuilderPool.clear();
     }
@@ -29,6 +31,7 @@ abstract class JeiStarterMixin {
     @Inject(method = "stop", at = @At("HEAD"), remap = false)
     private void jetoptimizer$clearExperimentalRuntimeOptions(CallbackInfo callbackInfo) {
         TooltipSearchOptimization.endRuntime();
+        PersistentRecipeCache.stopRuntime();
         RecipeStartupOptimization.reset();
         RecipeLayoutBuilderPool.clear();
     }
@@ -64,15 +67,13 @@ abstract class JeiStarterMixin {
         Internal.getOptionalJeiRuntime().ifPresent(JeiStarterMixin::recordIngredientCount);
         JETOptimizerProfiler.finishJeiStartup(finishedAt);
         PersistentSearchIndexCache.reportRuntime();
+        PersistentRecipeCache.finishRuntime();
     }
 
     private static void recordIngredientCount(IJeiRuntime runtime) {
-        int rawCount = 0;
-        int typedCount = 0;
-        for (IIngredientType<?> type : runtime.getIngredientManager().getRegisteredIngredientTypes()) {
-            rawCount += rawIngredientCount(runtime, type);
-            typedCount += typedIngredientCount(runtime, type);
-        }
+        var types = runtime.getIngredientManager().getRegisteredIngredientTypes();
+        int rawCount = types.stream().mapToInt(type -> rawIngredientCount(runtime, type)).sum();
+        int typedCount = types.stream().mapToInt(type -> typedIngredientCount(runtime, type)).sum();
         JETOptimizerProfiler.recordFinalIngredientCounts(rawCount, typedCount);
     }
 

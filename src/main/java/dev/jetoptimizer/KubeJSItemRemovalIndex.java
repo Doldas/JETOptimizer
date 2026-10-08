@@ -189,12 +189,7 @@ public final class KubeJSItemRemovalIndex {
             if (!(customIngredient instanceof CompoundIngredient compoundIngredient)) {
                 return false;
             }
-            for (Ingredient child : compoundIngredient.children()) {
-                if (!collectSimpleItemIds(child, itemRegistryIds, context)) {
-                    return false;
-                }
-            }
-            return true;
+            return compoundIngredient.children().stream().allMatch(child -> collectSimpleItemIds(child, itemRegistryIds, context));
         }
 
         if (ingredient.isEmpty()) {

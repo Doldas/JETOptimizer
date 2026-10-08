@@ -59,9 +59,7 @@ public final class RecipeLayoutBuilderPool {
             return;
         }
         try {
-            for (List<?> slots : slotsByRole.values()) {
-                slots.clear();
-            }
+            slotsByRole.values().forEach(List::clear);
             focusLinkedSlots.clear();
         } catch (RuntimeException | LinkageError e) {
             return;
