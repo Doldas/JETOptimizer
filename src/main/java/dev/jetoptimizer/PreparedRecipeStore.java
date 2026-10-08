@@ -54,6 +54,7 @@ final class PreparedRecipeStore {
     private final int entryLimit;
     private final long byteLimit;
     private long bytes = 128;
+    private long blockValues;
 
     PreparedRecipeStore() { this(MAX_ENTRIES, MAX_BYTES); }
     PreparedRecipeStore(int entryLimit, long byteLimit) {
@@ -98,14 +99,14 @@ final class PreparedRecipeStore {
         Map<Integer, List<String>> canonical = new TreeMap<>();
         entry.roles().forEach((role, values) -> {
             Block block = blocks.computeIfAbsent(values, Block::new);
-            if (block.references++ == 0) bytes += block.bytes;
+            if (block.references++ == 0) { bytes += block.bytes; blockValues += block.values.size(); }
             canonical.put(role, block.values);
         });
         Entry retained = new Entry(entry.id(), entry.fingerprint(), entry.recipeJson(), entry.dependencies(), canonical);
         entries.put(retained.id(), retained);
         bytes += entryBytes(retained);
         Iterator<Entry> oldest = entries.values().iterator();
-        while (entries.size() > entryLimit || bytes > byteLimit) {
+        while (entries.size() > entryLimit || bytes > byteLimit || blockValues > 2_000_000) {
             Entry evicted = oldest.next(); oldest.remove(); release(evicted);
         }
         return true;
@@ -126,7 +127,7 @@ final class PreparedRecipeStore {
         bytes -= entryBytes(entry);
         entry.roles().values().forEach(values -> {
             Block block = blocks.get(values);
-            if (--block.references == 0) { bytes -= block.bytes; blocks.remove(values); }
+            if (--block.references == 0) { bytes -= block.bytes; blockValues -= block.values.size(); blocks.remove(values); }
         });
     }
     private static long entryBytes(Entry entry) {

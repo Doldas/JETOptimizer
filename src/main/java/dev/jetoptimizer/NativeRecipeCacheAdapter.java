@@ -209,7 +209,7 @@ final class NativeRecipeCacheAdapter {
             });
         }
         List<ITypedIngredient<?>> decodeBlock(List<String> block) {
-            return decodedBlocks.computeIfAbsent(block, values -> values.stream().map(this::decode).toList());
+            return decodedBlocks.computeIfAbsent(block, values -> List.copyOf(values.stream().map(this::decode).toList()));
         }
         private ITypedIngredient<?> decode(String json) {
             return decoded.computeIfAbsent(json, value -> {

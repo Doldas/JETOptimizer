@@ -1,6 +1,13 @@
 package dev.jetoptimizer;
 
 import mezz.jei.api.constants.VanillaTypes;
+import mezz.jei.api.helpers.IGuiHelper;
+import mezz.jei.library.gui.helpers.CraftingGridHelper;
+import mezz.jei.library.plugins.vanilla.crafting.CraftingRecipeCategory;
+import mezz.jei.library.plugins.vanilla.crafting.CraftingCategoryExtension;
+import net.minecraft.core.NonNullList;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.crafting.*;
 import mezz.jei.api.ingredients.ITypedIngredient;
 import mezz.jei.api.recipe.RecipeIngredientRole;
 import mezz.jei.api.runtime.IIngredientManager;
@@ -38,6 +45,43 @@ class NativeRecipeCacheAdapterTest {
     private static NativeRecipeCacheAdapter.Input input(Map<Integer, List<String>> roles) {
         return new NativeRecipeCacheAdapter.Input(new PreparedRecipeStore.Id("minecraft:crafting", "example:test"), "{}",
                 Map.of("jei", "pinned"), roles, List.of("payload"));
+    }
+
+    private static CraftingRecipeCategory crafting() {
+        var helper = (IGuiHelper) Proxy.newProxyInstance(IGuiHelper.class.getClassLoader(), new Class<?>[]{IGuiHelper.class},
+                (proxy, method, arguments) -> method.getName().equals("createCraftingGridHelper") ? CraftingGridHelper.INSTANCE : null);
+        var category = new CraftingRecipeCategory(helper);
+        category.addExtension(CraftingRecipe.class, new CraftingCategoryExtension());
+        return category;
+    }
+    private static RecipeHolder<ShapelessRecipe> recipe(ItemStack output, Ingredient ingredient) {
+        return new RecipeHolder<>(ResourceLocation.fromNamespaceAndPath("example", "test"),
+                new ShapelessRecipe("group", CraftingBookCategory.MISC, output, NonNullList.of(Ingredient.EMPTY, ingredient)));
+    }
+    private static Map<String, String> manifest() {
+        return Map.of("minecraft", "mc", "neoforge", "neo", "jei", "pinned", "jetoptimizer", "optimizer", "example", "jar-v1");
+    }
+
+    @Test void actualRecipePayloadAndResolvedIngredientChangesInvalidateNativeKeys() throws Exception {
+        var context = encoder(); var category = crafting();
+        var first = NativeRecipeCacheAdapter.prepare(recipe(new ItemStack(Items.DIAMOND), Ingredient.of(Items.COAL)), category, context, manifest());
+        var unchanged = NativeRecipeCacheAdapter.prepare(recipe(new ItemStack(Items.DIAMOND), Ingredient.of(Items.COAL)), category, context, manifest());
+        var changedResult = NativeRecipeCacheAdapter.prepare(recipe(new ItemStack(Items.DIAMOND, 3), Ingredient.of(Items.COAL)), category, context, manifest());
+        var changedInput = NativeRecipeCacheAdapter.prepare(recipe(new ItemStack(Items.DIAMOND), Ingredient.of(Items.CHARCOAL)), category, context, manifest());
+        assertNotNull(first); assertEquals(first.fingerprint(), unchanged.fingerprint());
+        assertNotEquals(first.fingerprint(), changedResult.fingerprint());
+        assertNotEquals(first.fingerprint(), changedInput.fingerprint());
+        assertEquals(Set.of("minecraft", "neoforge", "jei", "jetoptimizer", "example"), first.dependencies().keySet());
+        var unavailable = new HashMap<>(manifest()); unavailable.put("example", "version:unavailable");
+        assertThrows(IllegalArgumentException.class, () -> NativeRecipeCacheAdapter.prepare(recipe(new ItemStack(Items.DIAMOND), Ingredient.of(Items.COAL)), category, context, unavailable));
+    }
+
+    @Test void customCraftingExtensionsCannotReuseNativeRecipeEntries() throws Exception {
+        var helper = (IGuiHelper) Proxy.newProxyInstance(IGuiHelper.class.getClassLoader(), new Class<?>[]{IGuiHelper.class},
+                (proxy, method, arguments) -> method.getName().equals("createCraftingGridHelper") ? CraftingGridHelper.INSTANCE : null);
+        var category = new CraftingRecipeCategory(helper);
+        category.addExtension(CraftingRecipe.class, new CraftingCategoryExtension() {});
+        assertNull(NativeRecipeCacheAdapter.prepare(recipe(new ItemStack(Items.DIAMOND), Ingredient.of(Items.COAL)), category, encoder(), manifest()));
     }
 
     @Test void diskRoundTripRebindsComponentsCountsAndIngredientRoles() throws Exception {
