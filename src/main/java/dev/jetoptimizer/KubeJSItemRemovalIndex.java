@@ -119,6 +119,7 @@ public final class KubeJSItemRemovalIndex {
         CandidateSelection selection = context == null ? null : context.selection;
         if (selection == null || context.itemSource == null || context.sourceIngredientEntries != original.size()) {
             if (context != null) {
+                context.fastIteratorStarted = false;
                 context.fullScanFallbacks++;
                 context.itemSource = null;
             }
