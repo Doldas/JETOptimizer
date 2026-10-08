@@ -25,9 +25,7 @@ public final class PersistentRecipeCache {
     private record ModFile(String id, String version, Path path) {}
     private record State(PreparedRecipeStore store, Map<String, String> manifest) {}
     private record Candidate(NativeRecipeCacheAdapter.Input input, String fingerprint, PreparedRecipeStore.Entry entry) {}
-    private static final ExecutorService DISK = Executors.newSingleThreadExecutor(task -> {
-        Thread thread = new Thread(task, "jetoptimizer-recipe-disk"); thread.setDaemon(true); return thread;
-    });
+    private static final ExecutorService DISK = CacheDiskExecutor.INSTANCE;
     private static final ThreadLocal<Batch> CURRENT = new ThreadLocal<>();
     private static final AtomicLong REVISION = new AtomicLong();
     private static final AtomicLong SAVED_REVISION = new AtomicLong();
