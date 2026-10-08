@@ -45,6 +45,21 @@ class MixinContractTest {
         // KubeJS is not a project dependency; no claim of integration coverage for its absent bytecode.
         assertFalse((Boolean)value(annotation(mixin,"/Mixin"),"remap",true));
     }
+    @Test void contractDetectsAChangedRegistrationInvocationDescriptor() throws Exception {
+        var mixin=read("dev.jetoptimizer.mixin.RecipeRegistrationMixin");
+        var handler=mixin.methods.stream().filter(m -> m.name.startsWith("jetoptimizer$")).findFirst().orElseThrow();
+        var redirect=annotations(handler.visibleAnnotations,handler.invisibleAnnotations).stream()
+            .filter(a -> a.desc.endsWith("/Redirect;")).findFirst().orElseThrow();
+        var at=(AnnotationNode)value(redirect,"at",null);
+        for(int i=0;i<at.values.size();i+=2) if(at.values.get(i).equals("target"))
+            at.values.set(i+1,"Lmezz/jei/library/recipes/RecipeManagerInternal;addRecipes()V");
+        assertThrows(AssertionError.class,() -> verify(mixin));
+    }
+    @Test void contractDetectsAnIncompatibleShadowFieldType() throws Exception {
+        var mixin=read("dev.jetoptimizer.mixin.BakedSubstringIndexBuilderMixin");
+        mixin.fields.stream().filter(f -> f.name.equals("keys")).findFirst().orElseThrow().desc="Ljava/lang/String;";
+        assertThrows(AssertionError.class,() -> verify(mixin));
+    }
     static void verify(ClassNode mixin) throws Exception {
         var targets=list(value(annotation(mixin,"/Mixin"),"targets",List.of()));
         for(var targetName:targets) {

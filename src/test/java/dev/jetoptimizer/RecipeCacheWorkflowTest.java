@@ -68,10 +68,11 @@ class RecipeCacheWorkflowTest {
         try { state.set(PersistentRecipeCache.class,"enabled",false); PersistentRecipeCache.stopRuntime(); }
         finally { workers.close(); state.close(); }
     }
-    RecipeHolder<ShapelessRecipe> recipe(Item item,int count) {
-        return NativeRecipeCacheAdapterTest.recipe(new ItemStack(item,count),Ingredient.of(Items.COAL));
+    RecipeHolder<CraftingRecipe> recipe(Item item,int count) {
+        var recipe=NativeRecipeCacheAdapterTest.recipe(new ItemStack(item,count),Ingredient.of(Items.COAL));
+        return new RecipeHolder<>(recipe.id(),recipe.value());
     }
-    void nativeCapture(RecipeHolder<ShapelessRecipe> recipe) {
+    void nativeCapture(RecipeHolder<CraftingRecipe> recipe) {
         PersistentRecipeCache.capture(recipe,category,IngredientSupplierHelper.getIngredientSupplier(recipe,category,ingredients));
     }
     @Test void firstJoinRelaunchAndServerPayloadChangeUseOnlyAuthoritativeRecipes() throws Exception {

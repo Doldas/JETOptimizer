@@ -63,10 +63,15 @@ class SearchCacheWorkflowTest {
     @Test void joinNeverWaitsForSlowOrFailedPreload() throws Exception {
         var pending=new CompletableFuture<DiskSearchIndexStore>(); state.set(PersistentSearchIndexCache.class,"preloaded",pending);
         // Running on a separate thread makes a blocking join fail with a bounded timeout.
-        try (var executor=Executors.newSingleThreadExecutor()) {
+        var executor=Executors.newSingleThreadExecutor();
+        try {
             assertNull(executor.submit(() -> PersistentSearchIndexCache.lookup(List.of("coal"),List.of("coal"))).get(2,TimeUnit.SECONDS));
             pending.completeExceptionally(new java.io.IOException("unreadable"));
             assertNull(executor.submit(() -> PersistentSearchIndexCache.lookup(List.of("coal"),List.of("coal"))).get(2,TimeUnit.SECONDS));
+        } finally {
+            pending.completeExceptionally(new java.io.IOException("test cleanup"));
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5,TimeUnit.SECONDS));
         }
     }
     @Test void unwritableDiskKeepsMemoryReuseAvailable() throws Exception {
