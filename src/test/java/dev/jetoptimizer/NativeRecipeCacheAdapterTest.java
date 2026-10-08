@@ -32,14 +32,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class NativeRecipeCacheAdapterTest {
     @TempDir Path directory;
 
-    private static IIngredientManager manager(ItemStackHelper helper) {
+    static IIngredientManager manager(ItemStackHelper helper) {
         return (IIngredientManager) Proxy.newProxyInstance(IIngredientManager.class.getClassLoader(), new Class<?>[]{IIngredientManager.class},
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("getIngredientHelper")) return helper;
                     throw new UnsupportedOperationException(method.getName());
                 });
     }
-    private static NativeRecipeCacheAdapter.Encoder encoder() {
+    static NativeRecipeCacheAdapter.Encoder encoder() {
         return new NativeRecipeCacheAdapter.Encoder(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY), manager(new ItemStackHelper(null, null)));
     }
     private static NativeRecipeCacheAdapter.Input input(Map<Integer, List<String>> roles) {
@@ -47,18 +47,18 @@ class NativeRecipeCacheAdapterTest {
                 Map.of("jei", "pinned"), roles, List.of("payload"));
     }
 
-    private static CraftingRecipeCategory crafting() {
+    static CraftingRecipeCategory crafting() {
         var helper = (IGuiHelper) Proxy.newProxyInstance(IGuiHelper.class.getClassLoader(), new Class<?>[]{IGuiHelper.class},
                 (proxy, method, arguments) -> method.getName().equals("createCraftingGridHelper") ? CraftingGridHelper.INSTANCE : null);
         var category = new CraftingRecipeCategory(helper);
         category.addExtension(CraftingRecipe.class, new CraftingCategoryExtension());
         return category;
     }
-    private static RecipeHolder<ShapelessRecipe> recipe(ItemStack output, Ingredient ingredient) {
+    static RecipeHolder<ShapelessRecipe> recipe(ItemStack output, Ingredient ingredient) {
         return new RecipeHolder<>(ResourceLocation.fromNamespaceAndPath("example", "test"),
                 new ShapelessRecipe("group", CraftingBookCategory.MISC, output, NonNullList.of(Ingredient.EMPTY, ingredient)));
     }
-    private static Map<String, String> manifest() {
+    static Map<String, String> manifest() {
         return Map.of("minecraft", "mc", "neoforge", "neo", "jei", "pinned", "jetoptimizer", "optimizer", "example", "jar-v1");
     }
 

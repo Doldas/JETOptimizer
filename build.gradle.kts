@@ -82,5 +82,7 @@ tasks.processResources {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        providers.gradleProperty("testSuite").orNull?.let { includeTags(it) }
+    }
 }
